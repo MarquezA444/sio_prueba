@@ -35,18 +35,26 @@ const MAPBOX_TOKEN = 'pk.eyJ1Ijoibmljb2xhczE4LSIsImEiOiJjbWhiaWM4b2IwaG14MmlxMGx
         map.current.addControl(new mapboxgl.FullscreenControl(), 'top-right');
 
         map.current.on('load', () => {
-            // Activar terreno 3D
-            map.current.addSource('mapbox-dem', {
-                'type': 'raster-dem',
-                'url': 'mapbox://mapbox.mapbox-terrain-dem-v1',
-                'tileSize': 512,
-                'maxzoom': 14
-            });
+            // OPTIMIZACIÓN: Terreno 3D deshabilitado solo para archivos muy grandes
+            if (spots.length < 5000) {
+                try {
+                    map.current.addSource('mapbox-dem', {
+                        'type': 'raster-dem',
+                        'url': 'mapbox://mapbox.mapbox-terrain-dem-v1',
+                        'tileSize': 512,
+                        'maxzoom': 14
+                    });
 
-            map.current.setTerrain({ 
-                'source': 'mapbox-dem', 
-                'exaggeration': 1.5 
-            });
+                    map.current.setTerrain({ 
+                        'source': 'mapbox-dem', 
+                        'exaggeration': 1.5 
+                    });
+                } catch (terrainError) {
+                    console.warn('Terreno 3D deshabilitado por optimización:', terrainError);
+                }
+            } else {
+                console.log('Terreno 3D deshabilitado para optimización de memoria');
+            }
 
             // Animación inicial dramática
             setTimeout(() => {
@@ -79,30 +87,64 @@ const MAPBOX_TOKEN = 'pk.eyJ1Ijoibmljb2xhczE4LSIsImEiOiJjbWhiaWM4b2IwaG14MmlxMGx
     }, [spots, selectedLote, mapLoaded]);
 
     const loadSpotsData = () => {
-        if (!map.current || !mapLoaded) return;
+        // Verificaciones más robustas antes de manipular el mapa
+        if (!map.current || !mapLoaded) {
+            console.log('Mapa no está listo');
+            return;
+        }
+
+        // Verificar que el estilo del mapa esté completamente cargado
+        if (!map.current.isStyleLoaded()) {
+            console.log('Estilo del mapa no está cargado, esperando...');
+            // Esperar a que el estilo se cargue completamente
+            map.current.once('styledata', () => {
+                setTimeout(() => loadSpotsData(), 100);
+            });
+            return;
+        }
 
         // Limpiar capas existentes de manera segura
         try {
-            ['spots-clusters', 'spots-cluster-count', 'spots-unclustered', 'spots-labels', 'lotes-polygons-fill', 'lotes-polygons-line', 'lotes-labels'].forEach(layerId => {
-                if (map.current.getLayer(layerId)) {
-                    map.current.removeLayer(layerId);
+            const layersToRemove = ['spots-clusters', 'spots-cluster-count', 'spots-unclustered', 'spots-labels', 'spots-lines', 'lotes-polygons-fill', 'lotes-polygons-line', 'lotes-labels'];
+            const sourcesToRemove = ['spots', 'spots-lines-src', 'lotes-polygons'];
+
+            // Remover capas de manera segura
+            layersToRemove.forEach(layerId => {
+                try {
+                    if (map.current.getLayer(layerId)) {
+                        map.current.removeLayer(layerId);
+                    }
+                } catch (layerError) {
+                    console.warn(`Error removiendo capa ${layerId}:`, layerError);
                 }
             });
 
-            // Limpiar fuentes
-            ['spots', 'lotes-polygons'].forEach(sourceId => {
-                if (map.current.getSource(sourceId)) {
-                    map.current.removeSource(sourceId);
+            // Remover fuentes de manera segura
+            sourcesToRemove.forEach(sourceId => {
+                try {
+                    if (map.current.getSource(sourceId)) {
+                        map.current.removeSource(sourceId);
+                    }
+                } catch (sourceError) {
+                    console.warn(`Error removiendo fuente ${sourceId}:`, sourceError);
                 }
             });
         } catch (error) {
-            console.warn('Error limpiando capas:', error);
+            console.warn('Error general limpiando capas:', error);
+            return; // Salir si hay error crítico
         }
 
-        // Filtrar spots por lote seleccionado
-        const filteredSpots = selectedLote 
-            ? spots.filter(spot => spot.lote === selectedLote)
-            : spots.slice(0, 1000);
+        // OPTIMIZACIÓN: Límites equilibrados para evitar "Out of Memory"
+        const MAX_SPOTS_WITHOUT_LOTE = 1500; // Aumentado de 500 a 1500
+        const MAX_SPOTS_WITH_LOTE = 5000;     // Aumentado de 2000 a 5000
+        
+        // Filtrar spots por lote seleccionado con límites estrictos
+        let filteredSpots;
+        if (selectedLote) {
+            filteredSpots = spots.filter(spot => spot.lote === selectedLote).slice(0, MAX_SPOTS_WITH_LOTE);
+        } else {
+            filteredSpots = spots.slice(0, MAX_SPOTS_WITHOUT_LOTE);
+        }
 
         if (filteredSpots.length === 0) {
             console.log('No hay spots para mostrar');
@@ -113,7 +155,7 @@ const MAPBOX_TOKEN = 'pk.eyJ1Ijoibmljb2xhczE4LSIsImEiOiJjbWhiaWM4b2IwaG14MmlxMGx
         // Actualizar estado
         setCurrentFilteredSpots(filteredSpots);
 
-        // Crear GeoJSON para spots con clustering
+        // OPTIMIZACIÓN: GeoJSON simplificado para reducir memoria
         const spotsGeoJSON = {
             type: 'FeatureCollection',
             features: filteredSpots.map((spot, index) => ({
@@ -123,8 +165,7 @@ const MAPBOX_TOKEN = 'pk.eyJ1Ijoibmljb2xhczE4LSIsImEiOiJjbWhiaWM4b2IwaG14MmlxMGx
                     lote: spot.lote || 'Sin lote',
                     linea: spot.linea || 'N/A',
                     posicion: spot.posicion || 0,
-                    latitud: spot.latitud,
-                    longitud: spot.longitud
+                    // Solo coordenadas necesarias, sin datos extra
                 },
                 geometry: {
                     type: 'Point',
@@ -133,102 +174,113 @@ const MAPBOX_TOKEN = 'pk.eyJ1Ijoibmljb2xhczE4LSIsImEiOiJjbWhiaWM4b2IwaG14MmlxMGx
             }))
         };
 
-        // Agregar fuente con clustering
-        map.current.addSource('spots', {
-            type: 'geojson',
-            data: spotsGeoJSON,
-            cluster: true,
-            clusterMaxZoom: 14,
-            clusterRadius: 50
-        });
+        // Agregar fuente con clustering de manera segura
+        try {
+            map.current.addSource('spots', {
+                type: 'geojson',
+                data: spotsGeoJSON,
+                cluster: true,
+                clusterMaxZoom: 14,
+                clusterRadius: 50
+            });
+        } catch (sourceError) {
+            console.error('Error agregando fuente spots:', sourceError);
+            return;
+        }
 
-        // CAPA 1: Clusters (grupos de puntos)
-        map.current.addLayer({
-            id: 'spots-clusters',
-            type: 'circle',
-            source: 'spots',
-            filter: ['has', 'point_count'],
-            paint: {
-                'circle-color': [
-                    'step',
-                    ['get', 'point_count'],
-                    '#51bbd6', // Azul claro
-                    100,
-                    '#f1f075', // Amarillo
-                    750,
-                    '#f28cb1' // Rosa
-                ],
-                'circle-radius': [
-                    'step',
-                    ['get', 'point_count'],
-                    20, // Radio base
-                    100,
-                    30,
-                    750,
-                    40
-                ],
-                'circle-stroke-width': 2,
-                'circle-stroke-color': '#ffffff'
-            }
-        });
+        // Agregar capas de manera segura
+        try {
+            // CAPA 1: Clusters (grupos de puntos)
+            map.current.addLayer({
+                id: 'spots-clusters',
+                type: 'circle',
+                source: 'spots',
+                filter: ['has', 'point_count'],
+                paint: {
+                    'circle-color': [
+                        'step',
+                        ['get', 'point_count'],
+                        '#51bbd6', // Azul claro
+                        100,
+                        '#f1f075', // Amarillo
+                        750,
+                        '#f28cb1' // Rosa
+                    ],
+                    'circle-radius': [
+                        'step',
+                        ['get', 'point_count'],
+                        20, // Radio base
+                        100,
+                        30,
+                        750,
+                        40
+                    ],
+                    'circle-stroke-width': 2,
+                    'circle-stroke-color': '#ffffff'
+                }
+            });
 
-        // CAPA 2: Contador de clusters
-        map.current.addLayer({
-            id: 'spots-cluster-count',
-            type: 'symbol',
-            source: 'spots',
-            filter: ['has', 'point_count'],
-            layout: {
-                'text-field': '{point_count_abbreviated}',
-                'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'],
-                'text-size': 12
-            },
-            paint: {
-                'text-color': '#000000'
-            }
-        });
+            // CAPA 2: Contador de clusters
+            map.current.addLayer({
+                id: 'spots-cluster-count',
+                type: 'symbol',
+                source: 'spots',
+                filter: ['has', 'point_count'],
+                layout: {
+                    'text-field': '{point_count_abbreviated}',
+                    'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'],
+                    'text-size': 12
+                },
+                paint: {
+                    'text-color': '#000000'
+                }
+            });
 
-        // CAPA 3: Puntos individuales (cuando no están en cluster)
-        map.current.addLayer({
-            id: 'spots-unclustered',
-            type: 'circle',
-            source: 'spots',
-            filter: ['!', ['has', 'point_count']],
-            paint: {
-                'circle-color': [
-                    'match',
-                    ['get', 'lote'],
-                    '62-LA CEIBA', '#1f78b4',
-                    '63-CERCA ELECTRICA', '#33a02c',
-                    '67-CASA ROJA', '#e31a1c',
-                    '83 - EL MIRADOR', '#ff7f00',
-                    '#CCCCCC'
-                ],
-                'circle-radius': 6,
-                'circle-stroke-width': 2,
-                'circle-stroke-color': '#ffffff'
-            }
-        });
+            // CAPA 3: Puntos individuales (cuando no están en cluster)
+            map.current.addLayer({
+                id: 'spots-unclustered',
+                type: 'circle',
+                source: 'spots',
+                filter: ['!', ['has', 'point_count']],
+                paint: {
+                    'circle-color': [
+                        'match',
+                        ['get', 'lote'],
+                        '62-LA CEIBA', '#1f78b4',
+                        '63-CERCA ELECTRICA', '#33a02c',
+                        '67-CASA ROJA', '#e31a1c',
+                        '83 - EL MIRADOR', '#ff7f00',
+                        '#CCCCCC'
+                    ],
+                    'circle-radius': 6,
+                    'circle-stroke-width': 2,
+                    'circle-stroke-color': '#ffffff'
+                }
+            });
 
-        // CAPA 4: Etiquetas de posición en puntos individuales
-        map.current.addLayer({
-            id: 'spots-labels',
-            type: 'symbol',
-            source: 'spots',
-            filter: ['!', ['has', 'point_count']],
-            minzoom: 15,
-            layout: {
-                'text-field': ['get', 'posicion'],
-                'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'],
-                'text-size': 10,
-                'text-anchor': 'center'
-            },
-            paint: {
-                'text-color': '#ffffff',
-                'text-halo-color': '#000000',
-                'text-halo-width': 1.5
-            }
-        });
+            // CAPA 4: Etiquetas de posición en puntos individuales
+            map.current.addLayer({
+                id: 'spots-labels',
+                type: 'symbol',
+                source: 'spots',
+                filter: ['!', ['has', 'point_count']],
+                minzoom: 15,
+                layout: {
+                    'text-field': ['get', 'posicion'],
+                    'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'],
+                    'text-size': 10,
+                    'text-anchor': 'center'
+                },
+                paint: {
+                    'text-color': '#ffffff',
+                    'text-halo-color': '#000000',
+                    'text-halo-width': 1.5
+                }
+            });
+        } catch (layerError) {
+            console.error('Error agregando capas de spots:', layerError);
+            return;
+        }
 
         // Crear polígonos para los lotes (aproximados)
         const loteGroups = {};
@@ -326,104 +378,327 @@ const MAPBOX_TOKEN = 'pk.eyJ1Ijoibmljb2xhczE4LSIsImEiOiJjbWhiaWM4b2IwaG14MmlxMGx
             });
         }
 
-        // Ajustar vista
-        if (filteredSpots.length > 0) {
-            const bounds = new mapboxgl.LngLatBounds();
-            filteredSpots.forEach(spot => {
-                bounds.extend([spot.longitud, spot.latitud]);
+        // === Líneas por línea de palma (conexión de spots ordenados por posición) ===
+        const lineGroups = {};
+        filteredSpots.forEach(spot => {
+            const lineaKey = `${(spot.lote || 'Sin lote').toString().trim()}|||${(spot.linea || 'N/A').toString().trim()}`;
+            if (!lineGroups[lineaKey]) lineGroups[lineaKey] = [];
+            lineGroups[lineaKey].push({
+                lon: spot.longitud,
+                lat: spot.latitud,
+                posicion: Number(spot.posicion) || 0,
+                lote: spot.lote || 'Sin lote',
+                linea: spot.linea || 'N/A',
             });
+        });
+
+        // Distancia Haversine en metros
+        const distanceMeters = (a, b) => {
+            const toRad = deg => (deg * Math.PI) / 180;
+            const R = 6371000;
+            const dLat = toRad(b.lat - a.lat);
+            const dLon = toRad(b.lon - a.lon);
+            const lat1 = toRad(a.lat);
+            const lat2 = toRad(b.lat);
+            const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+            return 2 * R * Math.asin(Math.sqrt(h));
+        };
+
+        // OPTIMIZACIÓN: Algoritmo más eficiente para líneas
+        const MAX_GAP_METERS = 50;
+        const MIN_POINTS_PER_LINE = 2;
+        const MAX_POSITION_GAP = 10;
+        const MAX_LINES_TO_PROCESS = 100; // Aumentado de 50 a 100 líneas
+
+        const lineFeatures = [];
+        const lineGroupsArray = Object.values(lineGroups);
+        
+        // OPTIMIZACIÓN: Procesar solo las primeras N líneas para evitar sobrecarga
+        const linesToProcess = lineGroupsArray.slice(0, MAX_LINES_TO_PROCESS);
+        
+        linesToProcess.forEach(points => {
+            if (points.length < MIN_POINTS_PER_LINE) return;
             
-            setTimeout(() => {
-                map.current.fitBounds(bounds, {
-                    padding: 80,
-                    maxZoom: 16,
-                    duration: 1500
-                });
-            }, 200);
-        }
-
-        // Agregar event listeners de manera segura
-        // Remover listeners previos si existen
-        if (map.current.getLayer('spots-clusters')) {
-            map.current.off('click', 'spots-clusters');
-            map.current.off('mouseenter', 'spots-clusters');
-            map.current.off('mouseleave', 'spots-clusters');
-        }
-
-        if (map.current.getLayer('spots-unclustered')) {
-            map.current.off('click', 'spots-unclustered');
-            map.current.off('mouseenter', 'spots-unclustered');
-            map.current.off('mouseleave', 'spots-unclustered');
-        }
-
-        // Interacción con clusters: expandir al hacer clic
-        map.current.on('click', 'spots-clusters', (e) => {
-            const features = map.current.queryRenderedFeatures(e.point, {
-                layers: ['spots-clusters']
-            });
+            // Ordenar por posición numérica
+            points.sort((a, b) => a.posicion - b.posicion);
             
-            if (features.length > 0) {
-                const clusterId = features[0].properties.cluster_id;
-                map.current.getSource('spots').getClusterExpansionZoom(
-                    clusterId,
-                    (err, zoom) => {
-                        if (err) return;
-
-                        map.current.easeTo({
-                            center: features[0].geometry.coordinates,
-                            zoom: zoom,
-                            duration: 800
-                        });
-                    }
+            // Algoritmo de reconstrucción inteligente
+            const segments = [];
+            let currentSegment = [points[0]];
+            
+            for (let i = 1; i < points.length; i++) {
+                const prev = currentSegment[currentSegment.length - 1];
+                const curr = points[i];
+                const distance = distanceMeters(prev, curr);
+                const positionGap = Math.abs(curr.posicion - prev.posicion);
+                
+                // Criterios más flexibles para continuar la línea
+                const shouldContinue = (
+                    distance <= MAX_GAP_METERS && 
+                    positionGap <= MAX_POSITION_GAP &&
+                    // Verificar que no haya un salto geográfico muy grande
+                    distance < 100 // Límite absoluto de distancia
                 );
+                
+                if (shouldContinue) {
+                    currentSegment.push(curr);
+                } else {
+                    // Finalizar segmento actual si tiene suficientes puntos
+                    if (currentSegment.length >= MIN_POINTS_PER_LINE) {
+                        segments.push([...currentSegment]);
+                    }
+                    currentSegment = [curr];
+                }
+            }
+            
+            // Agregar último segmento
+            if (currentSegment.length >= MIN_POINTS_PER_LINE) {
+                segments.push(currentSegment);
+            }
+            
+            // Crear LineString para cada segmento válido
+            segments.forEach(segment => {
+                lineFeatures.push({
+                    type: 'Feature',
+                    properties: { 
+                        lote: segment[0].lote, 
+                        linea: segment[0].linea,
+                        puntos: segment.length,
+                        rango: `${segment[0].posicion}-${segment[segment.length-1].posicion}`,
+                        distancia_total: segment.reduce((total, point, i) => {
+                            if (i === 0) return 0;
+                            return total + distanceMeters(segment[i-1], point);
+                        }, 0).toFixed(1) + 'm'
+                    },
+                    geometry: { 
+                        type: 'LineString', 
+                        coordinates: segment.map(p => [p.lon, p.lat]) 
+                    },
+                });
+            });
+        });
+
+        // Algoritmo adicional: conectar segmentos cercanos de la misma línea
+        const connectedFeatures = [];
+        const processedSegments = new Set();
+        
+        lineFeatures.forEach((segment, index) => {
+            if (processedSegments.has(index)) return;
+            
+            const connectedSegments = [segment];
+            processedSegments.add(index);
+            
+            // Buscar otros segmentos de la misma línea que puedan conectarse
+            lineFeatures.forEach((otherSegment, otherIndex) => {
+                if (processedSegments.has(otherIndex)) return;
+                if (segment.properties.lote !== otherSegment.properties.lote) return;
+                if (segment.properties.linea !== otherSegment.properties.linea) return;
+                
+                const segmentCoords = segment.geometry.coordinates;
+                const otherCoords = otherSegment.geometry.coordinates;
+                
+                // Calcular distancia entre extremos de los segmentos
+                const lastPoint = segmentCoords[segmentCoords.length - 1];
+                const firstPoint = otherCoords[0];
+                const distance = distanceMeters(
+                    { lat: lastPoint[1], lon: lastPoint[0] },
+                    { lat: firstPoint[1], lon: firstPoint[0] }
+                );
+                
+                // Si están cerca, conectarlos
+                if (distance <= MAX_GAP_METERS) {
+                    connectedSegments.push(otherSegment);
+                    processedSegments.add(otherIndex);
+                }
+            });
+            
+            // Si hay múltiples segmentos conectados, crear uno solo
+            if (connectedSegments.length > 1) {
+                const allCoords = connectedSegments.flatMap(s => s.geometry.coordinates);
+                const totalPoints = allCoords.length;
+                const totalDistance = connectedSegments.reduce((sum, s) => 
+                    sum + parseFloat(s.properties.distancia_total), 0
+                );
+                
+                connectedFeatures.push({
+                    type: 'Feature',
+                    properties: {
+                        lote: segment.properties.lote,
+                        linea: segment.properties.linea,
+                        puntos: totalPoints,
+                        segmentos_conectados: connectedSegments.length,
+                        distancia_total: totalDistance.toFixed(1) + 'm',
+                        rango: `${connectedSegments[0].properties.rango.split('-')[0]}-${connectedSegments[connectedSegments.length-1].properties.rango.split('-')[1]}`
+                    },
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: allCoords
+                    }
+                });
+            } else {
+                connectedFeatures.push(segment);
             }
         });
 
-        // Popup para puntos individuales
-        map.current.on('click', 'spots-unclustered', (e) => {
-            const feature = e.features[0];
-            const props = feature.properties;
-            
-            new mapboxgl.Popup({
-                closeButton: true,
-                closeOnClick: true,
-                className: 'spot-popup'
-            })
-                .setLngLat(e.lngLat)
-                .setHTML(`
-                    <div class="p-3 min-w-[200px]">
-                        <h3 class="font-bold text-base mb-2 text-blue-900 border-b pb-2">🌴 Palma #${props.posicion}</h3>
-                        <div class="space-y-1 text-sm">
-                            <p><strong class="text-gray-700">Lote:</strong> <span class="text-gray-900">${props.lote}</span></p>
-                            <p><strong class="text-gray-700">Línea:</strong> <span class="text-gray-900">${props.linea}</span></p>
-                            <p><strong class="text-gray-700">Posición:</strong> <span class="text-gray-900">${props.posicion}</span></p>
-                            <div class="mt-2 pt-2 border-t">
-                                <p class="text-xs text-gray-600"><strong>Coordenadas:</strong></p>
-                                <p class="text-xs font-mono text-gray-800">Lat: ${props.latitud.toFixed(7)}</p>
-                                <p class="text-xs font-mono text-gray-800">Lon: ${props.longitud.toFixed(7)}</p>
+        // Agregar líneas de manera segura
+        if (connectedFeatures.length > 0) {
+            try {
+                map.current.addSource('spots-lines-src', {
+                    type: 'geojson',
+                    data: {
+                        type: 'FeatureCollection',
+                        features: connectedFeatures,
+                    },
+                });
+
+                map.current.addLayer({
+                    id: 'spots-lines',
+                    type: 'line',
+                    source: 'spots-lines-src',
+                    layout: {
+                        'line-join': 'round',
+                        'line-cap': 'round',
+                    },
+                    paint: {
+                        'line-color': [
+                            'match',
+                            ['get', 'lote'],
+                            '62-LA CEIBA', '#1f78b4',
+                            '63-CERCA ELECTRICA', '#33a02c',
+                            '67-CASA ROJA', '#e31a1c',
+                            '83 - EL MIRADOR', '#ff7f00',
+                            '#888'
+                        ],
+                        'line-width': 2.5,
+                        'line-opacity': 0.9,
+                    },
+                }, 'spots-unclustered');
+            } catch (linesError) {
+                console.error('Error agregando líneas:', linesError);
+            }
+        }
+
+        // Ajustar vista de manera segura
+        if (filteredSpots.length > 0) {
+            try {
+                const bounds = new mapboxgl.LngLatBounds();
+                filteredSpots.forEach(spot => {
+                    bounds.extend([spot.longitud, spot.latitud]);
+                });
+                
+                setTimeout(() => {
+                    if (map.current && map.current.isStyleLoaded()) {
+                        map.current.fitBounds(bounds, {
+                            padding: 80,
+                            maxZoom: 16,
+                            duration: 1500
+                        });
+                    }
+                }, 200);
+            } catch (boundsError) {
+                console.warn('Error ajustando vista:', boundsError);
+            }
+        }
+
+        // Agregar event listeners de manera segura
+        try {
+            // Remover listeners previos si existen
+            if (map.current.getLayer('spots-clusters')) {
+                map.current.off('click', 'spots-clusters');
+                map.current.off('mouseenter', 'spots-clusters');
+                map.current.off('mouseleave', 'spots-clusters');
+            }
+
+            if (map.current.getLayer('spots-unclustered')) {
+                map.current.off('click', 'spots-unclustered');
+                map.current.off('mouseenter', 'spots-unclustered');
+                map.current.off('mouseleave', 'spots-unclustered');
+            }
+        } catch (listenerError) {
+            console.warn('Error removiendo listeners previos:', listenerError);
+        }
+
+        // Agregar event listeners de manera segura
+        try {
+            // Interacción con clusters: expandir al hacer clic
+            map.current.on('click', 'spots-clusters', (e) => {
+                try {
+                    const features = map.current.queryRenderedFeatures(e.point, {
+                        layers: ['spots-clusters']
+                    });
+                    
+                    if (features.length > 0) {
+                        const clusterId = features[0].properties.cluster_id;
+                        map.current.getSource('spots').getClusterExpansionZoom(
+                            clusterId,
+                            (err, zoom) => {
+                                if (err) return;
+
+                                map.current.easeTo({
+                                    center: features[0].geometry.coordinates,
+                                    zoom: zoom,
+                                    duration: 800
+                                });
+                            }
+                        );
+                    }
+                } catch (clusterError) {
+                    console.warn('Error en interacción con cluster:', clusterError);
+                }
+            });
+
+            // Popup para puntos individuales
+            map.current.on('click', 'spots-unclustered', (e) => {
+                try {
+                    const feature = e.features[0];
+                    const props = feature.properties;
+                    
+                    new mapboxgl.Popup({
+                        closeButton: true,
+                        closeOnClick: true,
+                        className: 'spot-popup'
+                    })
+                        .setLngLat(e.lngLat)
+                        .setHTML(`
+                            <div class="p-3 min-w-[200px]">
+                                <h3 class="font-bold text-base mb-2 text-blue-900 border-b pb-2">🌴 Palma #${props.posicion}</h3>
+                                <div class="space-y-1 text-sm">
+                                    <p><strong class="text-gray-700">Lote:</strong> <span class="text-gray-900">${props.lote}</span></p>
+                                    <p><strong class="text-gray-700">Línea:</strong> <span class="text-gray-900">${props.linea}</span></p>
+                                    <p><strong class="text-gray-700">Posición:</strong> <span class="text-gray-900">${props.posicion}</span></p>
+                                    <div class="mt-2 pt-2 border-t">
+                                        <p class="text-xs text-gray-600"><strong>Coordenadas:</strong></p>
+                                        <p class="text-xs font-mono text-gray-800">Lat: ${props.latitud.toFixed(7)}</p>
+                                        <p class="text-xs font-mono text-gray-800">Lon: ${props.longitud.toFixed(7)}</p>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                    </div>
-                `)
-                .addTo(map.current);
-        });
+                        `)
+                        .addTo(map.current);
+                } catch (popupError) {
+                    console.warn('Error mostrando popup:', popupError);
+                }
+            });
 
-        // Cambiar cursor en clusters y puntos
-        map.current.on('mouseenter', 'spots-clusters', () => {
-            map.current.getCanvas().style.cursor = 'pointer';
-        });
+            // Cambiar cursor en clusters y puntos
+            map.current.on('mouseenter', 'spots-clusters', () => {
+                map.current.getCanvas().style.cursor = 'pointer';
+            });
 
-        map.current.on('mouseleave', 'spots-clusters', () => {
-            map.current.getCanvas().style.cursor = '';
-        });
+            map.current.on('mouseleave', 'spots-clusters', () => {
+                map.current.getCanvas().style.cursor = '';
+            });
 
-        map.current.on('mouseenter', 'spots-unclustered', () => {
-            map.current.getCanvas().style.cursor = 'pointer';
-        });
+            map.current.on('mouseenter', 'spots-unclustered', () => {
+                map.current.getCanvas().style.cursor = 'pointer';
+            });
 
-        map.current.on('mouseleave', 'spots-unclustered', () => {
-            map.current.getCanvas().style.cursor = '';
-        });
+            map.current.on('mouseleave', 'spots-unclustered', () => {
+                map.current.getCanvas().style.cursor = '';
+            });
+        } catch (eventError) {
+            console.warn('Error agregando event listeners:', eventError);
+        }
     };
 
     return (
@@ -441,15 +716,20 @@ const MAPBOX_TOKEN = 'pk.eyJ1Ijoibmljb2xhczE4LSIsImEiOiJjbWhiaWM4b2IwaG14MmlxMGx
                 </div>
             )}
             
-            {/* Warning para archivos grandes */}
-            {mapLoaded && spots.length > 1000 && !selectedLote && (
-                <div className="absolute top-4 right-4 bg-gradient-to-r from-yellow-400 to-orange-500 text-white rounded-lg shadow-xl p-3 max-w-xs">
+            {/* Warning equilibrado para archivos grandes */}
+            {mapLoaded && spots.length > 2000 && (
+                <div className="absolute top-4 right-4 bg-gradient-to-r from-yellow-500 to-orange-500 text-white rounded-lg shadow-xl p-3 max-w-xs">
                     <div className="flex items-start gap-2">
                         <span className="text-xl">⚠️</span>
                         <div className="text-xs">
-                            <p className="font-bold">Dataset Grande Detectado</p>
-                            <p className="mt-1">Mostrando 1,000 de {spots.length.toLocaleString()} spots</p>
-                            <p className="mt-1 text-yellow-100">💡 Selecciona un lote específico para ver todos los datos</p>
+                            <p className="font-bold">Dataset Grande</p>
+                            <p className="mt-1">
+                                {selectedLote 
+                                    ? `Mostrando ${Math.min(currentFilteredSpots.length, 5000)} de ${spots.filter(s => s.lote === selectedLote).length.toLocaleString()} spots`
+                                    : `Mostrando ${Math.min(currentFilteredSpots.length, 1500)} de ${spots.length.toLocaleString()} spots`
+                                }
+                            </p>
+                            <p className="mt-1 text-yellow-100">💡 Selecciona un lote para ver más datos</p>
                         </div>
                     </div>
                 </div>
