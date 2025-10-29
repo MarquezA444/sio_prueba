@@ -65,7 +65,7 @@ export default function Dashboard() {
                 formData.append('finca_id', fincaId);
             }
 
-            const res = await axios.post('/api/v1/spots/upload', formData, {
+            const res = await axios.post('/api/v1/map/upload-spots', formData, {
                 headers: {
                     'Content-Type': 'multipart/form-data',
                 },
@@ -118,15 +118,19 @@ export default function Dashboard() {
 
             setLoadingLotes(true);
             try {
-                const res = await axios.get('/api/sioma/lotes');
+                const res = await axios.get('/api/sioma/lotes', {
+                    params: { finca_id: fincaId }
+                });
                 if (res.data && !res.data.error) {
                     const lotesData = Array.isArray(res.data) ? res.data : [];
                     setLotes(lotesData);
                 } else {
                     console.error('Error loading lotes:', res.data);
+                    setLotes([]);
                 }
             } catch (err) {
                 console.error('Error loading lotes:', err);
+                setLotes([]);
             } finally {
                 setLoadingLotes(false);
             }
@@ -156,7 +160,7 @@ export default function Dashboard() {
         setError(null);
 
         try {
-            const res = await axios.post('/api/v1/spots/send-sioma', {
+            const res = await axios.post('/api/v1/map/send-to-sioma', {
                 spots: spotsData,
                 finca_id: fincaId,
             });
@@ -194,7 +198,7 @@ export default function Dashboard() {
             formData.append('file', selectedFile);
             formData.append('errors', JSON.stringify(response.errors));
             
-            const res = await axios.post('/api/v1/spots/download-corrected', formData, {
+            const res = await axios.post('/api/v1/map/download-corrected', formData, {
                 headers: {
                     'Content-Type': 'multipart/form-data',
                 },
@@ -549,8 +553,8 @@ export default function Dashboard() {
                                     >
                                         <option value="">-- Seleccione una finca (opcional) --</option>
                                         {fincas.map((finca, idx) => (
-                                            <option key={idx} value={finca.id || finca.codigo || idx}>
-                                                {finca.nombre || finca.name || `Finca ${finca.id || idx}`}
+                                            <option key={idx} value={finca.key_value || finca.id || finca.codigo || idx}>
+                                                {finca.nombre || finca.name || `Finca ${finca.key_value || finca.id || idx}`}
                                             </option>
                                         ))}
                                     </select>
@@ -559,12 +563,86 @@ export default function Dashboard() {
                                             ⚠️ No se pudieron cargar las fincas. Verifique la conexión con la API.
                                         </p>
                                     )}
-                                    {fincas.length > 0 && (
+                                    {fincas.length > 0 && !fincaId && (
                                         <p className="mt-1 text-sm text-gray-500">
                                             ✅ {fincas.length} finca(s) disponible(s)
                                         </p>
                                     )}
+                                    {fincaId && loadingLotes && (
+                                        <p className="mt-1 text-sm text-blue-600">
+                                            ⏳ Cargando lotes asociados...
+                                        </p>
+                                    )}
+                                    {fincaId && !loadingLotes && lotes.length > 0 && (
+                                        <p className="mt-1 text-sm text-green-600">
+                                            ✅ {lotes.length} lote(s) asociado(s) a esta finca
+                                        </p>
+                                    )}
+                                    {fincaId && !loadingLotes && lotes.length === 0 && (
+                                        <p className="mt-1 text-sm text-amber-600">
+                                            ⚠️ No se encontraron lotes asociados a esta finca
+                                        </p>
+                                    )}
                                 </div>
+
+                                {/* Visualización de Lotes Asociados */}
+                                {fincaId && !loadingLotes && lotes.length > 0 && (
+                                    <div className="mt-4 p-4 bg-gradient-to-br from-green-50 to-blue-50 rounded-lg border-2 border-green-200 shadow-sm">
+                                        <h4 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                                            <span className="text-2xl">🗺️</span>
+                                            Lotes Asociados a la Finca ({lotes.length})
+                                        </h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                            {lotes.map((lote, idx) => (
+                                                <div
+                                                    key={idx}
+                                                    className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-all duration-200 hover:border-green-400 cursor-pointer"
+                                                    onClick={() => setSelectedLote(lote.nombre || lote.name)}
+                                                >
+                                                    <div className="flex items-start justify-between mb-2">
+                                                        <div className="flex-1">
+                                                            <h5 className="font-bold text-gray-900 text-base mb-1">
+                                                                {lote.nombre || lote.name || `Lote ${idx + 1}`}
+                                                            </h5>
+                                                            {lote.sigla && (
+                                                                <span className="inline-block px-2 py-1 bg-blue-100 text-blue-800 text-xs font-semibold rounded">
+                                                                    {lote.sigla}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <span className="text-2xl opacity-50">🌴</span>
+                                                    </div>
+                                                    
+                                                    {lote.grupo && (
+                                                        <div className="mt-2 pt-2 border-t border-gray-100">
+                                                            <p className="text-xs text-gray-600">
+                                                                <span className="font-medium">Grupo:</span> {lote.grupo}
+                                                            </p>
+                                                        </div>
+                                                    )}
+                                                    
+                                                    {lote.key_value && (
+                                                        <div className="mt-1">
+                                                            <p className="text-xs text-gray-500">
+                                                                ID: <span className="font-mono">{lote.key_value}</span>
+                                                            </p>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <p className="mt-3 text-sm text-gray-600 italic text-center">
+                                            💡 Haz clic en un lote para filtrarlo en el mapa
+                                        </p>
+                                    </div>
+                                )}
+
+                                {fincaId && loadingLotes && (
+                                    <div className="mt-4 p-6 bg-blue-50 rounded-lg border border-blue-200 text-center">
+                                        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
+                                        <p className="text-blue-700 font-medium">Cargando lotes asociados...</p>
+                                    </div>
+                                )}
 
                                 <button
                                     onClick={handleFileUpload}
@@ -700,12 +778,17 @@ export default function Dashboard() {
                         </div>
                     )}
 
-                    {/* Mapa Interactivo - Solo se muestra si hay datos validados */}
-                    {response && response.ok && spotsData.length > 0 && (
+                    {/* Mapa Interactivo - Se muestra si hay datos, incluso con errores */}
+                    {response && spotsData.length > 0 && (
                         <div className="overflow-hidden bg-white shadow-sm sm:rounded-lg">
                             <div className="p-6">
                                 <h3 className="text-lg font-semibold text-gray-900 mb-4">
                                     🗺️ Visualización en Mapa
+                                    {!response.ok && (
+                                        <span className="ml-2 text-sm text-amber-600 font-normal">
+                                            (Mostrando datos con errores)
+                                        </span>
+                                    )}
                                 </h3>
                                 
                                 {/* Selector de Lote */}
@@ -720,11 +803,15 @@ export default function Dashboard() {
                                         className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                                     >
                                         <option value="">-- Ver todos los lotes --</option>
-                                        {lotes.map((lote, idx) => (
-                                            <option key={idx} value={lote.nombre || lote.name || lote.id || idx}>
-                                                {lote.nombre || lote.name || `Lote ${lote.id || idx}`}
-                                            </option>
-                                        ))}
+                                        {lotes.map((lote, idx) => {
+                                            const loteNombre = lote.nombre || lote.name || `Lote ${lote.key_value || idx}`;
+                                            const loteValue = lote.nombre || lote.name || lote.key_value || idx;
+                                            return (
+                                                <option key={idx} value={loteValue}>
+                                                    {loteNombre} {lote.sigla && `(${lote.sigla})`}
+                                                </option>
+                                            );
+                                        })}
                                         {/* Lotes desde el archivo */}
                                         {[...new Set(spotsData.map(s => s.lote))].map((loteName, idx) => (
                                             <option key={`file-${idx}`} value={loteName}>

@@ -114,17 +114,80 @@ class ApiSiomaClient
      */
     public function getFincas(): array
     {
-        return $this->getSujetos([1]);
+        $fincas = $this->getSujetos([1]);
+        
+        // Log para debugging
+        Log::info('ApiSiomaClient getFincas', [
+            'total_fincas' => is_array($fincas) ? count($fincas) : 'not_array',
+            'has_error' => isset($fincas['error']),
+            'first_finca_structure' => is_array($fincas) && count($fincas) > 0 ? array_keys($fincas[0]) : null,
+        ]);
+        
+        return $fincas;
     }
 
     /**
      * Get lotes (tipo-sujetos: [3])
      *
+     * @param string|null $fincaId Filter lotes by finca ID
      * @return array
      */
-    public function getLotes(): array
+    public function getLotes(?string $fincaId = null): array
     {
-        return $this->getSujetos([3]);
+        $lotes = $this->getSujetos([3]);
+        
+        // Log para debugging
+        Log::info('ApiSiomaClient getLotes', [
+            'finca_id_requested' => $fincaId,
+            'total_lotes_returned' => is_array($lotes) ? count($lotes) : 'not_array',
+            'has_error' => isset($lotes['error']),
+            'first_lote_structure' => is_array($lotes) && count($lotes) > 0 ? array_keys($lotes[0]) : null,
+        ]);
+        
+        // Si hay error o no hay finca_id, retornar todos los lotes
+        if (isset($lotes['error']) || !$fincaId) {
+            Log::info('ApiSiomaClient getLotes - returning all lotes', [
+                'reason' => isset($lotes['error']) ? 'has_error' : 'no_finca_id',
+                'finca_id' => $fincaId,
+            ]);
+            return $lotes;
+        }
+        
+        // Filtrar lotes por finca_id si está presente
+        if (is_array($lotes)) {
+            $filteredLotes = array_values(array_filter($lotes, function ($lote) use ($fincaId) {
+                // Verificar diferentes campos posibles para la relación con finca
+                $loteFincaId = $lote['finca_id'] ?? $lote['fincaId'] ?? $lote['id_finca'] ?? null;
+                
+                // Convertir a int para comparación
+                $loteFincaIdInt = is_numeric($loteFincaId) ? (int)$loteFincaId : null;
+                $fincaIdInt = is_numeric($fincaId) ? (int)$fincaId : null;
+                
+                $matches = $loteFincaIdInt == $fincaIdInt || $loteFincaId == $fincaId;
+                
+                // Log detallado para debugging
+                if ($matches) {
+                    Log::debug('ApiSiomaClient getLotes - lote matches finca', [
+                        'lote_nombre' => $lote['nombre'] ?? 'sin_nombre',
+                        'lote_finca_id' => $loteFincaId,
+                        'requested_finca_id' => $fincaId,
+                        'lote_data' => $lote,
+                    ]);
+                }
+                
+                return $matches;
+            }));
+            
+            Log::info('ApiSiomaClient getLotes - filtered result', [
+                'original_count' => count($lotes),
+                'filtered_count' => count($filteredLotes),
+                'finca_id' => $fincaId,
+            ]);
+            
+            return $filteredLotes;
+        }
+        
+        return $lotes;
     }
 
     /**
