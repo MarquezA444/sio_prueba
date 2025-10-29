@@ -27,7 +27,7 @@ class SpotValidator:
             elif 'linea' in col_lower or col_lower in ['línea', 'line', 'linea_palma']:
                 column_mapping[col] = 'linea'
             # Posición
-            elif 'posicion' in col_lower or col_lower in ['posición', 'position', 'posicion_palma']:
+            elif 'posicion' in col_lower or col_lower in ['posición', 'position', 'posicion_palma', 'palma', 'palma_num']:
                 column_mapping[col] = 'posicion'
             # Lote
             elif 'lote' in col_lower or col_lower in ['lot']:
@@ -67,25 +67,29 @@ class SpotValidator:
         
         warnings = []
         
-        # Validar tipos de datos
+        # Agregar número de fila (para reporte de errores)
+        self.df['_row_number'] = range(2, len(self.df) + 2)  # +2 por header
+        
+        # 1. Validar valores vacíos ANTES de convertir tipos
+        for col in required_cols:
+            # Verificar si la columna existe y tiene valores vacíos
+            if col in self.df.columns:
+                null_mask = self.df[col].isna() | (self.df[col] == '') | (self.df[col].astype(str).str.strip() == '')
+                if null_mask.any():
+                    for idx, is_null in enumerate(null_mask):
+                        if is_null:
+                            row_num = int(self.df.at[idx, '_row_number'])
+                            errors["valores_vacios"].append({
+                                "row": row_num,
+                                "column": col
+                            })
+        
+        # Validar tipos de datos (después de detectar vacíos)
         self.df['latitud'] = pd.to_numeric(self.df['latitud'], errors='coerce')
         self.df['longitud'] = pd.to_numeric(self.df['longitud'], errors='coerce')
         self.df['linea'] = self.df['linea'].astype(str)
         self.df['posicion'] = pd.to_numeric(self.df['posicion'], errors='coerce')
         self.df['lote'] = self.df['lote'].astype(str)
-        
-        # Agregar número de fila (para reporte de errores)
-        self.df['_row_number'] = range(2, len(self.df) + 2)  # +2 por header
-        
-        # 1. Validar valores vacíos
-        for col in required_cols:
-            null_mask = self.df[col].isna() | (self.df[col] == '')
-            if null_mask.any():
-                for row_num in self.df[null_mask]['_row_number']:
-                    errors["valores_vacios"].append({
-                        "row": int(row_num),
-                        "column": col
-                    })
         
         # 2. Validar rangos de coordenadas
         lat_mask = (self.df['latitud'] < -90) | (self.df['latitud'] > 90)

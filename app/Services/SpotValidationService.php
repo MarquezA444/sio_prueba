@@ -85,7 +85,20 @@ class SpotValidationService
 
             // Check for empty required values
             foreach ($requiredColumns as $col) {
-                if (empty($row[$col]) && $row[$col] !== 0 && $row[$col] !== '0') {
+                $value = $row[$col] ?? null;
+                
+                // Considerar vacío: null, string vacío, string solo con espacios, NaN
+                $isEmpty = (
+                    $value === null || 
+                    $value === '' || 
+                    (is_string($value) && trim($value) === '') ||
+                    (is_float($value) && is_nan($value))
+                );
+                
+                // NO considerar vacío: 0 o '0' (valores válidos)
+                $isZero = ($value === 0 || $value === '0');
+                
+                if ($isEmpty && !$isZero) {
                     $errors['valores_vacios'][] = [
                         'row' => $rowNumber,
                         'column' => $col,
@@ -249,6 +262,10 @@ class SpotValidationService
                 // Normalize lote
                 elseif (in_array($key, ['lote', 'lot'])) {
                     $normalized['lote'] = $value;
+                }
+                // Normalize palma (sinónimo de posición palma)
+                elseif (in_array($key, ['palma', 'palma_num'])) {
+                    $normalized['posicion'] = $value;
                 }
                 else {
                     $normalized[$key] = $value;

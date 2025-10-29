@@ -188,11 +188,21 @@ export default function Dashboard() {
         }
 
         try {
+            // Verificar si hay valores vacíos
+            const hasEmptyValues = response.errors.valores_vacios && response.errors.valores_vacios.length > 0;
+            let removeEmptyValues = false;
+
+            if (hasEmptyValues) {
+                const confirmMessage = `Se encontraron ${response.errors.valores_vacios.length} fila(s) con valores vacíos.\n\n¿Desea eliminar estas filas del archivo corregido?\n\nClic "Aceptar" para eliminarlas\nClic "Cancelar" para mantenerlas (marcadas como ERROR)`;
+                removeEmptyValues = window.confirm(confirmMessage);
+            }
+
             setLoading(true);
             
             const formData = new FormData();
             formData.append('file', selectedFile);
             formData.append('errors', JSON.stringify(response.errors));
+            formData.append('remove_empty_values', removeEmptyValues ? '1' : '0');
             
             const res = await axios.post('/api/v1/spots/download-corrected', formData, {
                 headers: {
@@ -223,6 +233,11 @@ export default function Dashboard() {
             window.URL.revokeObjectURL(url);
             
             setLoading(false);
+            
+            // Mensaje de confirmación
+            if (removeEmptyValues) {
+                alert(`✅ Archivo descargado. Se eliminaron ${response.errors.valores_vacios.length} fila(s) con valores vacíos.`);
+            }
         } catch (err) {
             setLoading(false);
             setError({ message: 'Error al generar archivo corregido: ' + (err.message || 'Error desconocido') });
@@ -309,53 +324,59 @@ export default function Dashboard() {
     const renderErrorMessage = (errorType, error) => {
         const commonStyle = "text-gray-800";
         
+        // Si no es un objeto, mostrar directamente
+        if (typeof error !== 'object' || error === null) {
+            return <div className={commonStyle}>{String(error)}</div>;
+        }
+        
         switch (errorType) {
             case 'coords_duplicadas':
                 return (
                     <div className={commonStyle}>
-                        <span className="font-semibold">Fila {error.row}:</span> Coordenadas 
-                        <span className="font-mono text-sm">({error.lat}, {error.lon})</span> duplicadas de la fila {error.duplicate_of_row}
+                        <span className="font-semibold">Fila {error.row || '?'}:</span> Coordenadas 
+                        <span className="font-mono text-sm">({error.lat || '?'}, {error.lon || '?'})</span> duplicadas de la fila {error.duplicate_of_row || '?'}
                     </div>
                 );
             case 'linea_duplicada_en_lote':
                 return (
                     <div className={commonStyle}>
-                        <span className="font-semibold">Fila {error.row}:</span> Línea <span className="font-semibold">{error.linea}</span> 
-                        {' '}duplicada en lote <span className="font-semibold">"{error.lote}"</span> (duplicada de la fila {error.duplicate_of_row})
+                        <span className="font-semibold">Fila {error.row || '?'}:</span> Línea <span className="font-semibold">{error.linea || '?'}</span> 
+                        {' '}duplicada en lote <span className="font-semibold">"{error.lote || '?'}"</span> (duplicada de la fila {error.duplicate_of_row || '?'})
                     </div>
                 );
             case 'posicion_duplicada_en_linea':
                 return (
                     <div className={commonStyle}>
-                        <span className="font-semibold">Fila {error.row}:</span> Posición <span className="font-semibold">{error.posicion}</span> 
-                        {' '}duplicada en línea <span className="font-semibold">{error.linea}</span> del lote 
-                        <span className="font-semibold"> "{error.lote}"</span> (duplicada de la fila {error.duplicate_of_row})
+                        <span className="font-semibold">Fila {error.row || '?'}:</span> Posición <span className="font-semibold">{error.posicion || '?'}</span> 
+                        {' '}duplicada en línea <span className="font-semibold">{error.linea || '?'}</span> del lote 
+                        <span className="font-semibold"> "{error.lote || '?'}"</span> (duplicada de la fila {error.duplicate_of_row || '?'})
                     </div>
                 );
             case 'lote_invalido':
                 return (
                     <div className={commonStyle}>
-                        <span className="font-semibold">Fila {error.row}:</span> Lote <span className="font-semibold">"{error.lote}"</span> 
+                        <span className="font-semibold">Fila {error.row || '?'}:</span> Lote <span className="font-semibold">"{error.lote || '?'}"</span> 
                         {' '}no es válido para la finca seleccionada
                     </div>
                 );
             case 'rango_coord':
                 return (
                     <div className={commonStyle}>
-                        <span className="font-semibold">Fila {error.row}:</span> {error.field === 'latitud' ? 'Latitud' : 'Longitud'} 
-                        {' '}fuera de rango: <span className="font-semibold">{error.value}</span>
+                        <span className="font-semibold">Fila {error.row || '?'}:</span> {error.field === 'latitud' ? 'Latitud' : 'Longitud'} 
+                        {' '}fuera de rango: <span className="font-semibold">{error.value || '?'}</span>
                     </div>
                 );
             case 'valores_vacios':
                 return (
                     <div className={commonStyle}>
-                        <span className="font-semibold">Fila {error.row}:</span> Valor vacío en columna <span className="font-semibold">{error.column}</span>
+                        <span className="font-semibold">Fila {error.row || '?'}:</span> Valor vacío en columna <span className="font-semibold">{error.column || '?'}</span>
                     </div>
                 );
             case 'columnas_faltantes':
+                const missingCols = Array.isArray(error) ? error : [error];
                 return (
                     <div className={commonStyle}>
-                        Faltan columnas requeridas: <span className="font-semibold">{error.join(', ')}</span>
+                        Faltan columnas requeridas: <span className="font-semibold">{missingCols.join(', ')}</span>
                     </div>
                 );
             default:
@@ -646,8 +667,65 @@ export default function Dashboard() {
                                 {response.errors && Object.keys(response.errors).length > 0 && (
                                     <div className="mb-4 p-4 bg-white rounded-lg border border-red-200">
                                         <h5 className="font-semibold text-red-900 mb-2">⚠️ Errores encontrados</h5>
-                                        {Object.entries(response.errors).map(([errorType, errors]) => {
-                                            // Asegurar que errors es un array
+                                        
+                                        {/* Resumen total de errores */}
+                                        {(() => {
+                                            let totalErrors = 0;
+                                            let errorSummary = [];
+                                            
+                                            Object.entries(response.errors).forEach(([errorType, errors]) => {
+                                                if (errorType === 'columnas_faltantes') {
+                                                    const missingCols = Array.isArray(errors) ? errors : Object.keys(errors);
+                                                    errorSummary.push(`${missingCols.length} columna(s) faltante(s)`);
+                                                } else {
+                                                    const errorsArray = Array.isArray(errors) ? errors : [errors];
+                                                    totalErrors += errorsArray.length;
+                                                    if (errorsArray.length > 0) {
+                                                        errorSummary.push(`${errorsArray.length} ${getErrorLabel(errorType).toLowerCase()}`);
+                                                    }
+                                                }
+                                            });
+                                            
+                                            return (
+                                                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                                                    <div className="flex items-center gap-2 mb-2">
+                                                        <span className="text-lg">📊</span>
+                                                        <h6 className="font-semibold text-red-900">Resumen Total</h6>
+                                                    </div>
+                                                    <div className="text-sm text-red-800">
+                                                        <p className="font-medium mb-1">
+                                                            Total de errores encontrados: <span className="font-bold text-red-900">{totalErrors}</span>
+                                                        </p>
+                                                        <div className="text-xs text-red-700">
+                                                            {errorSummary.join(' • ')}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
+                                        
+                                        {(() => {
+                                            // Verificar si hay columnas faltantes
+                                            const hasMissingColumns = response.errors.columnas_faltantes && response.errors.columnas_faltantes.length > 0;
+                                            return Object.entries(response.errors).map(([errorType, errors]) => {
+                                            // Manejar columnas_faltantes como caso especial
+                                            if (errorType === 'columnas_faltantes') {
+                                                const missingCols = Array.isArray(errors) ? errors : Object.keys(errors);
+                                                return (
+                                                    <div key={errorType} className="mb-3">
+                                                        <h6 className="font-medium text-gray-900 mb-2">
+                                                            {getErrorLabel(errorType)} ({missingCols.length} {missingCols.length === 1 ? 'columna' : 'columnas'})
+                                                        </h6>
+                                                        <div className="text-sm text-gray-700 bg-red-50 p-3 rounded max-h-40 overflow-auto border border-red-200">
+                                                            <div className="font-semibold">
+                                                                Faltan las siguientes columnas requeridas: <span className="text-red-600">{missingCols.join(', ')}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+                                            
+                                            // Asegurar que errors es un array para otros tipos
                                             const errorsArray = Array.isArray(errors) ? errors : [errors];
                                             
                                             return (
@@ -669,21 +747,53 @@ export default function Dashboard() {
                                                     </div>
                                                 </div>
                                             );
-                                        })}
+                                        });
+                                        })()}
                                         
                                         {/* Botón de descarga de archivo corregido */}
-                                        <div className="mt-4 pt-4 border-t border-red-200">
-                                            <button
-                                                onClick={handleDownloadCorrectedFile}
-                                                disabled={loading}
-                                                className="w-full px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
-                                            >
-                                                📥 Descargar Archivo Corregido
-                                            </button>
-                                            <p className="mt-2 text-sm text-gray-600 text-center">
-                                                Los duplicados serán eliminados automáticamente
-                                            </p>
-                                        </div>
+                                        {(() => {
+                                            // No mostrar botón si hay columnas faltantes en el archivo
+                                            const hasMissingColumns = response.errors.columnas_faltantes && response.errors.columnas_faltantes.length > 0;
+                                            
+                                            if (hasMissingColumns) {
+                                                return (
+                                                    <div className="mt-4 pt-4 border-t border-red-200">
+                                                        <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                                                            <p className="text-sm text-yellow-800 text-center">
+                                                                ⚠️ <strong>No se puede generar archivo corregido:</strong>
+                                                                <br />
+                                                                El archivo debe tener <strong>TODAS</strong> las columnas requeridas.
+                                                                <br /><br />
+                                                                <strong>Columnas faltantes:</strong> 
+                                                                {(() => {
+                                                                    const missing = Array.isArray(response.errors.columnas_faltantes) 
+                                                                        ? response.errors.columnas_faltantes 
+                                                                        : Object.keys(response.errors.columnas_faltantes);
+                                                                    return <span className="font-mono text-base"> {missing.join(', ')}</span>;
+                                                                })()}
+                                                                <br /><br />
+                                                                <strong>Solución:</strong> Edita tu archivo y agrega las columnas faltantes, luego vuelve a subir.
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+                                            
+                                            return (
+                                                <div className="mt-4 pt-4 border-t border-red-200">
+                                                    <button
+                                                        onClick={handleDownloadCorrectedFile}
+                                                        disabled={loading}
+                                                        className="w-full px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
+                                                    >
+                                                        📥 Descargar Archivo Corregido
+                                                    </button>
+                                                    <p className="mt-2 text-sm text-gray-600 text-center">
+                                                        Los duplicados serán eliminados automáticamente
+                                                    </p>
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                 )}
 
