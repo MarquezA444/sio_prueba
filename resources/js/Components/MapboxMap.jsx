@@ -164,7 +164,8 @@ const MAPBOX_TOKEN = 'pk.eyJ1Ijoibmljb2xhczE4LSIsImEiOiJjbWhiaWM4b2IwaG14MmlxMGx
                     id: index,
                     lote: spot.lote || 'Sin lote',
                     linea: spot.linea || 'N/A',
-                    posicion: spot.posicion || 0,
+                    // Manejar posicion correctamente: puede ser 0 (válido) o null/undefined
+                    posicion: spot.posicion !== null && spot.posicion !== undefined ? spot.posicion : null,
                     latitud: spot.latitud || null,
                     longitud: spot.longitud || null,
                     // Solo coordenadas necesarias, sin datos extra
@@ -265,18 +266,31 @@ const MAPBOX_TOKEN = 'pk.eyJ1Ijoibmljb2xhczE4LSIsImEiOiJjbWhiaWM4b2IwaG14MmlxMGx
                 id: 'spots-labels',
                 type: 'symbol',
                 source: 'spots',
-                filter: ['!', ['has', 'point_count']],
-                minzoom: 15,
+                filter: [
+                    'all',
+                    ['!', ['has', 'point_count']],
+                    ['!=', ['get', 'posicion'], null],
+                    ['!=', ['get', 'posicion'], ['literal', null]]
+                ],
+                minzoom: 12, // Reducido de 15 a 12 para ver las etiquetas antes
                 layout: {
-                    'text-field': ['get', 'posicion'],
+                    // Convertir posicion a string (solo mostrar si no es null)
+                    'text-field': ['to-string', ['get', 'posicion']],
                     'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'],
-                    'text-size': 10,
+                    'text-size': [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        12, 9,  // Tamaño 9 en zoom 12
+                        15, 11  // Tamaño 11 en zoom 15+
+                    ],
                     'text-anchor': 'center'
                 },
                 paint: {
                     'text-color': '#ffffff',
                     'text-halo-color': '#000000',
-                    'text-halo-width': 1.5
+                    'text-halo-width': 1.5,
+                    'text-halo-blur': 1
                 }
             });
         } catch (layerError) {

@@ -20,7 +20,10 @@ import {
     faChevronRight,
     faArrowRight,
     faLeaf,
-    faMapLocationDot
+    faMapLocationDot,
+    faEdit,
+    faSave,
+    faTimes
 } from '@fortawesome/free-solid-svg-icons';
 import Swal from 'sweetalert2';
 
@@ -43,6 +46,11 @@ export default function Dashboard() {
     const [selectedLote, setSelectedLote] = useState('');
     const [spotsData, setSpotsData] = useState([]);
     const [sendingToSioma, setSendingToSioma] = useState(false);
+    
+    // Estado para editor manual de filas con errores
+    const [editableRows, setEditableRows] = useState({});
+    const [showManualEditor, setShowManualEditor] = useState(false);
+    const [rowsWithErrors, setRowsWithErrors] = useState([]);
 
     const handleApiCall = async (endpoint, method = 'GET', data = null) => {
         setLoading(true);
@@ -144,21 +152,43 @@ export default function Dashboard() {
             const spot = {};
             headers.forEach((header, idx) => {
                 const key = header.toLowerCase().trim();
+                const value = row[idx];
+                
+                // Ignorar columnas de estado y errores (vienen del archivo corregido)
+                if (key === 'estado' || key === 'errores' || key === 'ok' || key === 'error') {
+                    return; // Saltar estas columnas
+                }
+                
                 // Normalizar nombres de columnas
                 if (key.includes('latitud') || key.includes('lat')) {
-                    spot.latitud = parseFloat(row[idx]) || null;
+                    const parsed = parseFloat(value);
+                    spot.latitud = !isNaN(parsed) ? parsed : null;
                 } else if (key.includes('longitud') || key.includes('lon') || key.includes('lng')) {
-                    spot.longitud = parseFloat(row[idx]) || null;
-                } else if (key.includes('linea') || key.includes('línea')) {
-                    spot.linea = row[idx];
-                } else if (key.includes('posicion') || key.includes('posición')) {
-                    spot.posicion = parseInt(row[idx]) || null;
-                } else if (key.includes('lote')) {
-                    spot.lote = row[idx];
+                    const parsed = parseFloat(value);
+                    spot.longitud = !isNaN(parsed) ? parsed : null;
+                } else if (key.includes('linea') || key.includes('línea') || key === 'linea_palma') {
+                    spot.linea = value ? String(value).trim() : null;
+                } else if (
+                    key.includes('posicion') || 
+                    key.includes('posición') || 
+                    key === 'posicion_palma' || 
+                    key === 'palma' ||
+                    key === 'palma_num'
+                ) {
+                    // Manejar posición correctamente (puede ser 0, que es válido)
+                    const trimmed = value ? String(value).trim() : '';
+                    if (trimmed === '' || trimmed.toLowerCase() === 'nan') {
+                        spot.posicion = null;
+                    } else {
+                        const parsed = parseInt(trimmed, 10);
+                        spot.posicion = !isNaN(parsed) ? parsed : null;
+                    }
+                } else if (key.includes('lote') || key === 'lot') {
+                    spot.lote = value ? String(value).trim() : null;
                 }
             });
             return spot;
-        }).filter(spot => spot.latitud && spot.longitud);
+        }).filter(spot => spot.latitud !== null && spot.longitud !== null && !isNaN(spot.latitud) && !isNaN(spot.longitud));
     };
 
     // Cargar lotes cuando se selecciona una finca
@@ -288,6 +318,145 @@ export default function Dashboard() {
         } finally {
             setSendingToSioma(false);
         }
+    };
+
+    // Función auxiliar para obtener todos los errores de una fila específica
+    const getRowErrors = (rowNumber, errors) => {
+        const rowErrors = [];
+        Object.entries(errors).forEach(([errorType, errorList]) => {
+            if (errorType === 'columnas_faltantes') return;
+            const errorsArray = Array.isArray(errorList) ? errorList : [errorList];
+            errorsArray.forEach(error => {
+                if (error && error.row === rowNumber) {
+                    rowErrors.push({
+                        type: errorType,
+                        errorData: error // Guardamos los datos del error, no el mensaje renderizado
+                    });
+                }
+            });
+        });
+        return rowErrors;
+    };
+
+    // Función para preparar filas con errores para edición manual
+    useEffect(() => {
+        if (response && response.errors && csvPreview && csvPreview.allRows) {
+            const errorRowsSet = new Set();
+            
+            // Recopilar todos los números de fila que tienen errores
+            Object.entries(response.errors).forEach(([errorType, errors]) => {
+                if (errorType === 'columnas_faltantes') return; // Ignorar este tipo
+                
+                const errorsArray = Array.isArray(errors) ? errors : [errors];
+                errorsArray.forEach(error => {
+                    if (error && error.row) {
+                        errorRowsSet.add(error.row - 1); // -1 porque row es 1-indexed pero allRows es 0-indexed
+                    }
+                });
+            });
+            
+            // Crear array de filas con errores incluyendo los datos originales
+            const rowsWithErrorsData = Array.from(errorRowsSet)
+                .filter(rowIdx => rowIdx >= 0 && rowIdx < csvPreview.allRows.length)
+                .map(rowIdx => ({
+                    rowNumber: rowIdx + 1, // 1-indexed para mostrar
+                    rowIndex: rowIdx, // 0-indexed para acceder a allRows
+                    originalRow: [...csvPreview.allRows[rowIdx]],
+                    editedRow: [...csvPreview.allRows[rowIdx]], // Inicialmente igual al original
+                    errors: getRowErrors(rowIdx + 1, response.errors)
+                }));
+            
+            setRowsWithErrors(rowsWithErrorsData);
+        } else {
+            setRowsWithErrors([]);
+        }
+    }, [response, csvPreview]);
+
+    // Función para abrir el editor manual
+    const handleOpenManualEditor = () => {
+        if (rowsWithErrors.length === 0) {
+            Swal.fire({
+                icon: 'info',
+                title: 'Sin Filas para Editar',
+                text: 'No hay filas con errores para editar manualmente',
+                confirmButtonText: 'Entendido',
+                confirmButtonColor: '#A51C24',
+            });
+            return;
+        }
+        setShowManualEditor(true);
+    };
+
+    // Función para actualizar una celda editada
+    const handleCellEdit = (rowIndex, cellIndex, newValue) => {
+        setRowsWithErrors(prev => prev.map(row => {
+            if (row.rowIndex === rowIndex) {
+                const updatedRow = [...row.editedRow];
+                updatedRow[cellIndex] = newValue;
+                return { ...row, editedRow: updatedRow };
+            }
+            return row;
+        }));
+    };
+
+    // Función para descartar cambios de una fila
+    const handleDiscardRowChanges = (rowIndex) => {
+        setRowsWithErrors(prev => prev.map(row => {
+            if (row.rowIndex === rowIndex) {
+                return { ...row, editedRow: [...row.originalRow] };
+            }
+            return row;
+        }));
+    };
+
+    // Función para guardar cambios y generar nuevo CSV
+    const handleSaveManualEdits = async () => {
+        if (!csvPreview || !selectedFile) return;
+
+        // Crear nuevo array con las filas editadas aplicadas
+        const updatedRows = [...csvPreview.allRows];
+        rowsWithErrors.forEach(rowData => {
+            updatedRows[rowData.rowIndex] = rowData.editedRow;
+        });
+
+        // Crear CSV desde las filas actualizadas
+        const csvContent = [
+            csvPreview.headers.join(','),
+            ...updatedRows.map(row => row.map(cell => {
+                // Escapar comillas y comas en celdas
+                const cellStr = String(cell || '');
+                if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
+                    return `"${cellStr.replace(/"/g, '""')}"`;
+                }
+                return cellStr;
+            }).join(','))
+        ].join('\n');
+
+        // Crear blob y descargar
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        const filename = selectedFile.name.replace(/\.(csv|xlsx|xls)$/i, '') + '_editado_manual.csv';
+        
+        link.href = url;
+        link.setAttribute('download', filename);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        Swal.fire({
+            icon: 'success',
+            title: '¡Archivo Guardado!',
+            html: `Se descargó el archivo con las <strong>${rowsWithErrors.length}</strong> fila(s) editadas manualmente.<br><br>Puedes subir este archivo nuevamente para validarlo.`,
+            confirmButtonText: 'Perfecto',
+            confirmButtonColor: '#10B981',
+            timer: 4000,
+            timerProgressBar: true,
+        });
+
+        // Cerrar editor
+        setShowManualEditor(false);
     };
 
     // Generar archivo corregido
@@ -657,7 +826,7 @@ export default function Dashboard() {
                                 <div>
                                     <h3 className="text-2xl font-black text-white mb-1">
                                         Carga y Validación de Datos
-                                    </h3>
+                            </h3>
                                     <p className="text-white/90 text-sm">
                                         Importa archivos CSV o XLSX para análisis y validación automática
                                     </p>
@@ -673,10 +842,10 @@ export default function Dashboard() {
                                     <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
                                         <FontAwesomeIcon icon={faFolder} className="text-xl text-blue-600" />
                                     </div>
-                                    <div>
+                                <div>
                                         <label className="block text-base font-black text-gray-900">
                                             Seleccionar Archivo
-                                        </label>
+                                    </label>
                                         <p className="text-sm text-gray-500">Formatos permitidos: CSV, XLSX, XLS</p>
                                     </div>
                                 </div>
@@ -695,7 +864,7 @@ export default function Dashboard() {
                                     </div>
                                 </div>
                                 
-                                {selectedFile && (
+                                    {selectedFile && (
                                     <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-5 rounded-2xl border-2 border-green-200 shadow-sm">
                                         <div className="flex items-start gap-4">
                                             <div className="flex-shrink-0 w-12 h-12 bg-green-500 rounded-xl flex items-center justify-center shadow-lg">
@@ -706,15 +875,15 @@ export default function Dashboard() {
                                                 <p className="text-sm text-green-700 truncate">
                                                     <span className="font-semibold">{selectedFile.name}</span>
                                                 </p>
-                                                {selectedFile.size && (
+                                            {selectedFile.size && (
                                                     <p className="text-xs text-green-600 mt-1">
                                                         Tamaño: {(selectedFile.size / 1024).toFixed(2)} KB
-                                                    </p>
+                                        </p>
                                                 )}
                                             </div>
                                         </div>
                                     </div>
-                                )}
+                                    )}
                                 </div>
 
                             {/* CSV Preview con diseño profesional */}
@@ -732,7 +901,7 @@ export default function Dashboard() {
                                     </div>
                                 )}
 
-                            {csvPreview && csvPreview.error && (
+                                {csvPreview && csvPreview.error && (
                                 <div className="bg-red-50 p-6 rounded-2xl border-2 border-red-200 shadow-sm">
                                     <div className="flex items-start gap-4">
                                         <div className="flex-shrink-0 w-10 h-10 bg-red-500 rounded-xl flex items-center justify-center">
@@ -743,8 +912,8 @@ export default function Dashboard() {
                                             <p className="text-sm text-red-700">{csvPreview.error}</p>
                                         </div>
                                     </div>
-                                </div>
-                            )}
+                                    </div>
+                                )}
 
                                 {csvPreview && !csvPreview.error && (() => {
                                     const startIdx = (currentPage - 1) * rowsPerPage;
@@ -768,25 +937,25 @@ export default function Dashboard() {
                                                             {startIdx + 1}-{Math.min(endIdx, csvPreview.totalRows)} de {csvPreview.totalRows} registros
                                                         </p>
                                                     </div>
-                                                </div>
+                                                    </div>
                                                     <div className="flex items-center gap-2">
-                                                    <button
-                                                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                                                        disabled={currentPage === 1}
+                                                        <button
+                                                            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                                            disabled={currentPage === 1}
                                                         className="px-4 py-2 text-sm font-bold text-gray-700 bg-white border-2 border-gray-300 rounded-xl hover:bg-gray-50 hover:border-[#A51C24] hover:text-[#A51C24] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm flex items-center gap-2"
-                                                    >
+                                                        >
                                                         <FontAwesomeIcon icon={faChevronLeft} /> Anterior
-                                                    </button>
+                                                        </button>
                                                     <span className="px-4 py-2 text-sm font-bold text-gray-900 bg-white border-2 border-gray-300 rounded-xl">
                                                         {currentPage} / {totalPages}
                                                         </span>
-                                                    <button
-                                                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                                                        disabled={currentPage === totalPages}
+                                                        <button
+                                                            onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                                            disabled={currentPage === totalPages}
                                                         className="px-4 py-2 text-sm font-bold text-gray-700 bg-white border-2 border-gray-300 rounded-xl hover:bg-gray-50 hover:border-[#A51C24] hover:text-[#A51C24] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm flex items-center gap-2"
-                                                    >
+                                                        >
                                                         Siguiente <FontAwesomeIcon icon={faChevronRight} />
-                                                    </button>
+                                                        </button>
                                                     </div>
                                                 </div>
                                             </div>
@@ -830,11 +999,11 @@ export default function Dashboard() {
                                     <div className="w-10 h-10 bg-orange-100 rounded-xl flex items-center justify-center">
                                         <FontAwesomeIcon icon={faWheatAwn} className="text-xl text-orange-600" />
                                     </div>
-                                    <div>
+                                <div>
                                         <label className="block text-base font-black text-gray-900">
                                             Seleccionar Finca
                                             {loadingFincas && <span className="ml-2 text-sm font-normal text-gray-500">(Cargando...)</span>}
-                                        </label>
+                                    </label>
                                         <p className="text-sm text-gray-500">Opcional: Asociar datos a una finca específica</p>
                                     </div>
                                 </div>
@@ -846,15 +1015,15 @@ export default function Dashboard() {
                                     className="block w-full px-4 py-4 text-sm font-semibold text-gray-900 border-2 border-gray-300 rounded-2xl focus:ring-2 focus:ring-[#A51C24] focus:border-[#A51C24] disabled:bg-gray-100 disabled:cursor-not-allowed transition-all shadow-sm hover:border-[#A51C24] bg-white"
                                     >
                                     <option value="" className="font-semibold">-- Seleccione una finca (opcional) --</option>
-                                    {fincas.map((finca, idx) => (
+                                        {fincas.map((finca, idx) => (
                                         <option key={idx} value={finca.key_value || finca.id || finca.codigo || idx} className="font-semibold">
                                             {finca.nombre || finca.name || `Finca ${finca.key_value || finca.id || idx}`}
-                                        </option>
-                                    ))}
+                                            </option>
+                                        ))}
                                     </select>
                                 
                                 {/* Indicadores de estado */}
-                                {fincas.length === 0 && !loadingFincas && (
+                                    {fincas.length === 0 && !loadingFincas && (
                                     <div className="bg-amber-50 p-4 rounded-xl border-2 border-amber-200">
                                         <div className="flex items-start gap-3">
                                             <div className="flex-shrink-0 w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center">
@@ -902,7 +1071,7 @@ export default function Dashboard() {
                                             No se encontraron lotes para esta finca
                                         </p>
                                     </div>
-                                )}
+                                    )}
                                 </div>
 
                                 {/* Visualización de Lotes Asociados */}
@@ -1116,17 +1285,51 @@ export default function Dashboard() {
                                             });
                                             
                                             return (
-                                                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                                                    <div className="flex items-center gap-2 mb-2">
-                                                        <FontAwesomeIcon icon={faFileCircleCheck} className="text-red-600 text-lg" />
-                                                        <h6 className="font-semibold text-red-900">Resumen Total</h6>
+                                                <div className="mb-6 bg-gradient-to-br from-red-50 to-red-100 border-2 border-red-300 rounded-2xl p-6 shadow-lg">
+                                                    <div className="flex items-center justify-between mb-4">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-12 h-12 bg-red-500 rounded-xl flex items-center justify-center shadow-md">
+                                                                <FontAwesomeIcon icon={faFileCircleCheck} className="text-white text-xl" />
+                                                            </div>
+                                                            <div>
+                                                                <h6 className="font-black text-xl text-red-900">Resumen de Validación</h6>
+                                                                <p className="text-sm text-red-700">Revisa los detalles a continuación</p>
+                                                            </div>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <div className="text-4xl font-black text-red-600">{totalErrors}</div>
+                                                            <div className="text-xs text-red-700 font-medium">Total Errores</div>
+                                                        </div>
                                                     </div>
-                                                    <div className="text-sm text-red-800">
-                                                        <p className="font-medium mb-1">
-                                                            Total de errores encontrados: <span className="font-bold text-red-900">{totalErrors}</span>
-                                                        </p>
-                                                        <div className="text-xs text-red-700">
-                                                            {errorSummary.join(' • ')}
+                                                    
+                                                    {/* Grid de estadísticas */}
+                                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4">
+                                                        <div className="bg-white rounded-xl p-3 border border-red-200 shadow-sm">
+                                                            <div className="text-2xl font-black text-red-600">{totalErrors}</div>
+                                                            <div className="text-xs text-gray-600 mt-1">Errores Totales</div>
+                                                        </div>
+                                                        <div className="bg-white rounded-xl p-3 border border-red-200 shadow-sm">
+                                                            <div className="text-2xl font-black text-orange-600">{errorSummary.length}</div>
+                                                            <div className="text-xs text-gray-600 mt-1">Tipos de Error</div>
+                                                        </div>
+                                                        <div className="bg-white rounded-xl p-3 border border-red-200 shadow-sm col-span-2 md:col-span-1">
+                                                            <div className="text-2xl font-black text-purple-600">{rowsWithErrors.length}</div>
+                                                            <div className="text-xs text-gray-600 mt-1">Filas Afectadas</div>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    {/* Breakdown visual */}
+                                                    <div className="mt-4 pt-4 border-t border-red-200">
+                                                        <p className="text-xs font-semibold text-red-700 mb-2 uppercase tracking-wide">Desglose por tipo:</p>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {errorSummary.map((summary, idx) => (
+                                                                <span 
+                                                                    key={idx}
+                                                                    className="px-3 py-1.5 bg-white border-2 border-red-300 rounded-lg text-xs font-semibold text-red-800 shadow-sm"
+                                                                >
+                                                                    {summary}
+                                                                </span>
+                                                            ))}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -1141,14 +1344,45 @@ export default function Dashboard() {
                                             if (errorType === 'columnas_faltantes') {
                                                 const missingCols = Array.isArray(errors) ? errors : Object.keys(errors);
                                                 return (
-                                            <div key={errorType} className="mb-3">
-                                                        <h6 className="font-medium text-gray-900 mb-2">
-                                                            {getErrorLabel(errorType)} ({missingCols.length} {missingCols.length === 1 ? 'columna' : 'columnas'})
-                                                </h6>
-                                                        <div className="text-sm text-gray-700 bg-red-50 p-3 rounded max-h-40 overflow-auto border border-red-200">
-                                                            <div className="font-semibold">
-                                                                Faltan las siguientes columnas requeridas: <span className="text-red-600">{missingCols.join(', ')}</span>
-                                                </div>
+                                                    <div key={errorType} className="mb-4 bg-white rounded-xl border-2 border-yellow-300 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                                                        {/* Header */}
+                                                        <div className="bg-gradient-to-r from-yellow-50 to-amber-50 border-b-2 border-yellow-300 p-4">
+                                                            <div className="flex items-center justify-between">
+                                                                <div className="flex items-center gap-3">
+                                                                    <span className="text-2xl">📋</span>
+                                                                    <div>
+                                                                        <h6 className="font-black text-base text-gray-900">
+                                                                            {getErrorLabel(errorType)}
+                                                                        </h6>
+                                                                        <p className="text-xs text-gray-600 mt-0.5">
+                                                                            {missingCols.length} {missingCols.length === 1 ? 'columna faltante' : 'columnas faltantes'}
+                                                                        </p>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="px-4 py-1.5 bg-white rounded-lg border-2 border-yellow-300 shadow-sm">
+                                                                    <span className="text-lg font-black text-yellow-600">{missingCols.length}</span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        {/* Contenido */}
+                                                        <div className="bg-yellow-50 p-4">
+                                                            <div className="bg-white p-4 rounded-lg border border-yellow-200 shadow-sm">
+                                                                <p className="text-sm font-semibold text-gray-900 mb-3">⚠️ Columnas requeridas que faltan:</p>
+                                                                <div className="flex flex-wrap gap-2">
+                                                                    {missingCols.map((col, idx) => (
+                                                                        <span 
+                                                                            key={idx}
+                                                                            className="px-3 py-1.5 bg-yellow-100 border-2 border-yellow-300 rounded-lg text-sm font-bold text-yellow-800 shadow-sm"
+                                                                        >
+                                                                            {col}
+                                                                        </span>
+                                                                    ))}
+                                                                </div>
+                                                                <p className="text-xs text-gray-600 mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                                                                    💡 <strong>Solución:</strong> Agrega estas columnas a tu archivo CSV/XLSX y vuelve a subirlo para continuar con la validación.
+                                                                </p>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 );
@@ -1157,22 +1391,61 @@ export default function Dashboard() {
                                             // Asegurar que errors es un array para otros tipos
                                             const errorsArray = Array.isArray(errors) ? errors : [errors];
                                             
+                                            // Color y icono por tipo de error
+                                            const errorConfig = {
+                                                'coords_duplicadas': { color: 'red', icon: '📍', bg: 'bg-red-50', border: 'border-red-300' },
+                                                'linea_duplicada_en_lote': { color: 'orange', icon: '📊', bg: 'bg-orange-50', border: 'border-orange-300' },
+                                                'posicion_duplicada_en_linea': { color: 'orange', icon: '🔢', bg: 'bg-orange-50', border: 'border-orange-300' },
+                                                'lote_invalido': { color: 'purple', icon: '🏷️', bg: 'bg-purple-50', border: 'border-purple-300' },
+                                                'rango_coord': { color: 'blue', icon: '🌐', bg: 'bg-blue-50', border: 'border-blue-300' },
+                                                'valores_vacios': { color: 'amber', icon: '⚠️', bg: 'bg-amber-50', border: 'border-amber-300' }
+                                            };
+                                            const config = errorConfig[errorType] || { color: 'red', icon: '❌', bg: 'bg-red-50', border: 'border-red-300' };
+                                            
                                             return (
-                                                <div key={errorType} className="mb-3">
-                                                    <h6 className="font-medium text-gray-900 mb-2">
-                                                        {getErrorLabel(errorType)} ({errorsArray.length} {errorsArray.length === 1 ? 'error' : 'errores'})
-                                                    </h6>
-                                                    <div className="text-sm text-gray-700 bg-red-50 p-3 rounded max-h-40 overflow-auto border border-red-200">
-                                                        {errorsArray.slice(0, 10).map((error, idx) => (
-                                                            <div key={idx} className="mb-2 pb-2 border-b border-red-200 last:border-b-0">
-                                                                {renderErrorMessage(errorType, error)}
-                                            </div>
-                                        ))}
-                                                        {errorsArray.length > 10 && (
-                                                            <p className="text-gray-500 italic mt-2">
-                                                                ...y {errorsArray.length - 10} error(es) más
-                                                            </p>
-                                                        )}
+                                                <div key={errorType} className="mb-4 bg-white rounded-xl border-2 border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                                                    {/* Header del tipo de error */}
+                                                    <div className={`${config.bg} ${config.border} border-b-2 p-4`}>
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex items-center gap-3">
+                                                                <span className="text-2xl">{config.icon}</span>
+                                                                <div>
+                                                                    <h6 className="font-black text-base text-gray-900">
+                                                                        {getErrorLabel(errorType)}
+                                                                    </h6>
+                                                                    <p className="text-xs text-gray-600 mt-0.5">
+                                                                        {errorsArray.length} {errorsArray.length === 1 ? 'error encontrado' : 'errores encontrados'}
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                            <div className={`px-4 py-1.5 bg-white rounded-lg border-2 ${config.border} shadow-sm`}>
+                                                                <span className={`text-lg font-black ${config.color === 'red' ? 'text-red-600' : config.color === 'orange' ? 'text-orange-600' : config.color === 'purple' ? 'text-purple-600' : config.color === 'blue' ? 'text-blue-600' : config.color === 'amber' ? 'text-amber-600' : 'text-red-600'}`}>{errorsArray.length}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    {/* Lista de errores */}
+                                                    <div className={`${config.bg} p-4 max-h-64 overflow-y-auto`}>
+                                                        <div className="space-y-2">
+                                                            {errorsArray.slice(0, 10).map((error, idx) => (
+                                                                <div 
+                                                                    key={idx} 
+                                                                    className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm hover:shadow transition-shadow"
+                                                                >
+                                                                    <div className="text-sm text-gray-800 leading-relaxed">
+                                                                        {renderErrorMessage(errorType, error)}
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                            {errorsArray.length > 10 && (
+                                                                <div className="bg-gray-100 p-3 rounded-lg border border-gray-300 text-center">
+                                                                    <p className="text-sm text-gray-600 font-medium">
+                                                                        <span className="font-black text-gray-900">+{errorsArray.length - 10}</span> error{errorsArray.length - 10 !== 1 ? 'es' : ''} más
+                                                                    </p>
+                                                                    <p className="text-xs text-gray-500 mt-1">Usa el editor manual para corregirlos</p>
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </div>
                                             );
@@ -1210,19 +1483,137 @@ export default function Dashboard() {
                                             
                                             return (
                                                 <div className="mt-4 pt-4 border-t border-red-200">
-                                                    <button
-                                                        onClick={handleDownloadCorrectedFile}
-                                                        disabled={loading}
-                                                        className="w-full px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
-                                                    >
-                                                        📥 Descargar Archivo Corregido
-                                                    </button>
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                        <button
+                                                            onClick={handleDownloadCorrectedFile}
+                                                            disabled={loading}
+                                                            className="w-full px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
+                                                        >
+                                                            <FontAwesomeIcon icon={faFileCircleCheck} />
+                                                            Descargar Archivo Corregido
+                                                        </button>
+                                                        <button
+                                                            onClick={handleOpenManualEditor}
+                                                            disabled={loading || rowsWithErrors.length === 0}
+                                                            className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
+                                                        >
+                                                            <FontAwesomeIcon icon={faEdit} />
+                                                            Editar Manualmente ({rowsWithErrors.length} fila{rowsWithErrors.length !== 1 ? 's' : ''})
+                                                        </button>
+                                                    </div>
                                                     <p className="mt-2 text-sm text-gray-600 text-center">
-                                                        Los duplicados serán eliminados automáticamente
+                                                        Los duplicados serán eliminados automáticamente • O edita manualmente las filas con errores
                                                     </p>
                                                 </div>
                                             );
                                         })()}
+                                    </div>
+                                )}
+
+                                {/* Editor Manual de Filas con Errores */}
+                                {showManualEditor && rowsWithErrors.length > 0 && (
+                                    <div className="mt-6 p-6 bg-white border-2 border-blue-300 rounded-2xl shadow-xl">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <div>
+                                                <h5 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                                                    <FontAwesomeIcon icon={faEdit} className="text-blue-600" />
+                                                    Editor Manual de Filas con Errores
+                                                </h5>
+                                                <p className="text-sm text-gray-600 mt-1">
+                                                    Edita directamente las {rowsWithErrors.length} fila(s) que contienen errores
+                                                </p>
+                                            </div>
+                                            <button
+                                                onClick={() => setShowManualEditor(false)}
+                                                className="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition"
+                                            >
+                                                <FontAwesomeIcon icon={faTimes} className="text-xl" />
+                                            </button>
+                                        </div>
+
+                                        <div className="overflow-x-auto border-2 border-gray-200 rounded-lg mb-4 max-h-96 overflow-y-auto">
+                                            <table className="min-w-full divide-y divide-gray-200">
+                                                <thead className="bg-gradient-to-r from-blue-50 to-indigo-50 sticky top-0">
+                                                    <tr>
+                                                        <th className="px-3 py-2 text-left text-xs font-bold text-gray-700 uppercase">
+                                                            #
+                                                        </th>
+                                                        <th className="px-3 py-2 text-left text-xs font-bold text-gray-700 uppercase">
+                                                            Errores
+                                                        </th>
+                                                        {csvPreview && csvPreview.headers.map((header, idx) => (
+                                                            <th key={idx} className="px-3 py-2 text-left text-xs font-bold text-gray-700 uppercase min-w-[120px]">
+                                                                {header}
+                                                            </th>
+                                                        ))}
+                                                        <th className="px-3 py-2 text-center text-xs font-bold text-gray-700 uppercase">
+                                                            Acciones
+                                                        </th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="bg-white divide-y divide-gray-200">
+                                                    {rowsWithErrors.map((rowData) => (
+                                                        <tr 
+                                                            key={rowData.rowIndex} 
+                                                            className="hover:bg-blue-50 transition-colors"
+                                                        >
+                                                            <td className="px-3 py-2 whitespace-nowrap text-sm font-bold text-gray-900 bg-gray-50">
+                                                                {rowData.rowNumber}
+                                                            </td>
+                                                            <td className="px-3 py-2 text-xs">
+                                                                <div className="space-y-1 max-w-xs">
+                                                                    {rowData.errors.map((err, errIdx) => (
+                                                                        <div key={errIdx} className="text-red-600 bg-red-50 px-2 py-1 rounded">
+                                                                            {renderErrorMessage(err.type, err.errorData)}
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </td>
+                                                            {rowData.editedRow.map((cell, cellIdx) => (
+                                                                <td key={cellIdx} className="px-3 py-2">
+                                                                    <input
+                                                                        type="text"
+                                                                        value={cell || ''}
+                                                                        onChange={(e) => handleCellEdit(rowData.rowIndex, cellIdx, e.target.value)}
+                                                                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                                    />
+                                                                </td>
+                                                            ))}
+                                                            <td className="px-3 py-2 text-center">
+                                                                <button
+                                                                    onClick={() => handleDiscardRowChanges(rowData.rowIndex)}
+                                                                    className="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition"
+                                                                    title="Descartar cambios"
+                                                                >
+                                                                    <FontAwesomeIcon icon={faTimes} />
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+
+                                        <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+                                            <p className="text-sm text-gray-600">
+                                                <strong>💡 Tip:</strong> Haz clic en cualquier celda para editarla. Los cambios se aplicarán al descargar el archivo.
+                                            </p>
+                                            <div className="flex gap-3">
+                                                <button
+                                                    onClick={() => setShowManualEditor(false)}
+                                                    className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition"
+                                                >
+                                                    Cancelar
+                                                </button>
+                                                <button
+                                                    onClick={handleSaveManualEdits}
+                                                    className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 transition flex items-center gap-2"
+                                                >
+                                                    <FontAwesomeIcon icon={faSave} />
+                                                    Guardar y Descargar
+                                                </button>
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
 
