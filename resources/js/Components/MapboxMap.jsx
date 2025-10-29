@@ -165,6 +165,8 @@ const MAPBOX_TOKEN = 'pk.eyJ1Ijoibmljb2xhczE4LSIsImEiOiJjbWhiaWM4b2IwaG14MmlxMGx
                     lote: spot.lote || 'Sin lote',
                     linea: spot.linea || 'N/A',
                     posicion: spot.posicion || 0,
+                    latitud: spot.latitud || null,
+                    longitud: spot.longitud || null,
                     // Solo coordenadas necesarias, sin datos extra
                 },
                 geometry: {
@@ -653,6 +655,18 @@ const MAPBOX_TOKEN = 'pk.eyJ1Ijoibmljb2xhczE4LSIsImEiOiJjbWhiaWM4b2IwaG14MmlxMGx
                     const feature = e.features[0];
                     const props = feature.properties;
                     
+                    // Obtener coordenadas desde propiedades o desde el geometry/evento
+                    const latitud = props.latitud ?? feature.geometry.coordinates[1] ?? e.lngLat.lat;
+                    const longitud = props.longitud ?? feature.geometry.coordinates[0] ?? e.lngLat.lng;
+                    
+                    // Formatear coordenadas de forma segura
+                    const latFormatted = (typeof latitud === 'number' && !isNaN(latitud)) 
+                        ? latitud.toFixed(7) 
+                        : 'N/A';
+                    const lonFormatted = (typeof longitud === 'number' && !isNaN(longitud)) 
+                        ? longitud.toFixed(7) 
+                        : 'N/A';
+                    
                     new mapboxgl.Popup({
                         closeButton: true,
                         closeOnClick: true,
@@ -661,15 +675,15 @@ const MAPBOX_TOKEN = 'pk.eyJ1Ijoibmljb2xhczE4LSIsImEiOiJjbWhiaWM4b2IwaG14MmlxMGx
                         .setLngLat(e.lngLat)
                         .setHTML(`
                             <div class="p-3 min-w-[200px]">
-                                <h3 class="font-bold text-base mb-2 text-blue-900 border-b pb-2">🌴 Palma #${props.posicion}</h3>
+                                <h3 class="font-bold text-base mb-2 text-blue-900 border-b pb-2">🌴 Palma #${props.posicion ?? 'N/A'}</h3>
                                 <div class="space-y-1 text-sm">
-                                    <p><strong class="text-gray-700">Lote:</strong> <span class="text-gray-900">${props.lote}</span></p>
-                                    <p><strong class="text-gray-700">Línea:</strong> <span class="text-gray-900">${props.linea}</span></p>
-                                    <p><strong class="text-gray-700">Posición:</strong> <span class="text-gray-900">${props.posicion}</span></p>
+                                    <p><strong class="text-gray-700">Lote:</strong> <span class="text-gray-900">${props.lote ?? 'N/A'}</span></p>
+                                    <p><strong class="text-gray-700">Línea:</strong> <span class="text-gray-900">${props.linea ?? 'N/A'}</span></p>
+                                    <p><strong class="text-gray-700">Posición:</strong> <span class="text-gray-900">${props.posicion ?? 'N/A'}</span></p>
                                     <div class="mt-2 pt-2 border-t">
                                         <p class="text-xs text-gray-600"><strong>Coordenadas:</strong></p>
-                                        <p class="text-xs font-mono text-gray-800">Lat: ${props.latitud.toFixed(7)}</p>
-                                        <p class="text-xs font-mono text-gray-800">Lon: ${props.longitud.toFixed(7)}</p>
+                                        <p class="text-xs font-mono text-gray-800">Lat: ${latFormatted}</p>
+                                        <p class="text-xs font-mono text-gray-800">Lon: ${lonFormatted}</p>
                                     </div>
                                 </div>
                             </div>
