@@ -1,8 +1,28 @@
-import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import SiomaLayout from '@/Layouts/SiomaLayout';
 import { Head } from '@inertiajs/react';
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import MapboxMap from '@/Components/MapboxMap';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { 
+    faUpload, 
+    faFolder, 
+    faWheatAwn, 
+    faFileCircleCheck,
+    faCloudArrowUp,
+    faSpinner,
+    faCheckCircle,
+    faXmark,
+    faCircleCheck,
+    faExclamationTriangle,
+    faFile,
+    faChevronLeft,
+    faChevronRight,
+    faArrowRight,
+    faLeaf,
+    faMapLocationDot
+} from '@fortawesome/free-solid-svg-icons';
+import Swal from 'sweetalert2';
 
 export default function Dashboard() {
     const [loading, setLoading] = useState(false);
@@ -50,7 +70,13 @@ export default function Dashboard() {
 
     const handleFileUpload = async () => {
         if (!selectedFile) {
-            setError({ message: 'Por favor selecciona un archivo' });
+            Swal.fire({
+                icon: 'warning',
+                title: 'Archivo Requerido',
+                text: 'Por favor selecciona un archivo CSV o XLSX',
+                confirmButtonText: 'Entendido',
+                confirmButtonColor: '#A51C24',
+            });
             return;
         }
 
@@ -77,8 +103,36 @@ export default function Dashboard() {
                 const normalizedData = normalizeSpotsData(csvPreview.headers, csvPreview.allRows);
                 setSpotsData(normalizedData);
             }
+
+            // Mostrar alerta de éxito
+            if (res.data.ok) {
+                Swal.fire({
+                    icon: 'success',
+                    title: '¡Validación Exitosa!',
+                    text: 'El archivo fue validado correctamente sin errores',
+                    confirmButtonText: 'Continuar',
+                    confirmButtonColor: '#10B981',
+                    timer: 3000,
+                    timerProgressBar: true,
+                });
+            } else {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Errores Encontrados',
+                    text: 'Se encontraron errores en el archivo. Revisa los detalles abajo.',
+                    confirmButtonText: 'Ver Errores',
+                    confirmButtonColor: '#A51C24',
+                });
+            }
         } catch (err) {
             setError(err.response?.data || err.message);
+            Swal.fire({
+                icon: 'error',
+                title: 'Error al Procesar',
+                text: err.response?.data?.message || 'Ocurrió un error al procesar el archivo',
+                confirmButtonText: 'Entendido',
+                confirmButtonColor: '#A51C24',
+            });
         } finally {
             setLoading(false);
         }
@@ -142,19 +196,51 @@ export default function Dashboard() {
     // Enviar datos validados a Sioma
     const handleSendToSioma = async () => {
         if (!response || !response.ok) {
-            setError({ message: 'Primero debe validar los datos correctamente' });
+            Swal.fire({
+                icon: 'warning',
+                title: 'Validación Requerida',
+                text: 'Primero debe validar los datos correctamente antes de enviar',
+                confirmButtonText: 'Entendido',
+                confirmButtonColor: '#A51C24',
+            });
             return;
         }
 
         if (!fincaId) {
-            setError({ message: 'Debe seleccionar una finca' });
+            Swal.fire({
+                icon: 'info',
+                title: 'Finca Requerida',
+                text: 'Debe seleccionar una finca antes de enviar los datos',
+                confirmButtonText: 'Seleccionar Finca',
+                confirmButtonColor: '#A51C24',
+            });
             return;
         }
 
         if (!spotsData || spotsData.length === 0) {
-            setError({ message: 'No hay datos para enviar' });
+            Swal.fire({
+                icon: 'warning',
+                title: 'Sin Datos',
+                text: 'No hay datos válidos para enviar',
+                confirmButtonText: 'Entendido',
+                confirmButtonColor: '#A51C24',
+            });
             return;
         }
+
+        // Confirmar envío
+        const result = await Swal.fire({
+            icon: 'question',
+            title: '¿Enviar a SIOMA?',
+            html: `Se enviarán <strong>${spotsData.length}</strong> spots a la plataforma SIOMA.<br><br>¿Desea continuar?`,
+            showCancelButton: true,
+            confirmButtonText: 'Sí, Enviar',
+            cancelButtonText: 'Cancelar',
+            confirmButtonColor: '#10B981',
+            cancelButtonColor: '#6B7280',
+        });
+
+        if (!result.isConfirmed) return;
 
         setSendingToSioma(true);
         setError(null);
@@ -172,13 +258,33 @@ export default function Dashboard() {
                     message: res.data.message || 'Datos enviados exitosamente a Sioma'
                 });
                 
-                alert('✅ Datos enviados exitosamente a Sioma');
+                Swal.fire({
+                    icon: 'success',
+                    title: '¡Enviado con Éxito!',
+                    html: `Los datos fueron enviados correctamente a SIOMA.<br><br><strong>${spotsData.length}</strong> spots procesados`,
+                    confirmButtonText: 'Excelente',
+                    confirmButtonColor: '#10B981',
+                    timer: 4000,
+                    timerProgressBar: true,
+                });
             } else {
-                setError({ message: res.data.message || 'Error al enviar a Sioma' });
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error al Enviar',
+                    text: res.data.message || 'No se pudo completar el envío a SIOMA',
+                    confirmButtonText: 'Entendido',
+                    confirmButtonColor: '#A51C24',
+                });
             }
         } catch (err) {
             const errorMsg = err.response?.data?.message || err.message || 'Error desconocido';
-            setError({ message: 'Error al enviar a Sioma: ' + errorMsg });
+            Swal.fire({
+                icon: 'error',
+                title: 'Error de Conexión',
+                text: 'Error al enviar a SIOMA: ' + errorMsg,
+                confirmButtonText: 'Entendido',
+                confirmButtonColor: '#A51C24',
+            });
         } finally {
             setSendingToSioma(false);
         }
@@ -187,7 +293,13 @@ export default function Dashboard() {
     // Generar archivo corregido
     const handleDownloadCorrectedFile = async () => {
         if (!selectedFile || !response || !response.errors) {
-            setError({ message: 'No hay datos para corregir' });
+            Swal.fire({
+                icon: 'warning',
+                title: 'Sin Datos',
+                text: 'No hay errores para corregir en el archivo',
+                confirmButtonText: 'Entendido',
+                confirmButtonColor: '#A51C24',
+            });
             return;
         }
 
@@ -197,8 +309,22 @@ export default function Dashboard() {
             let removeEmptyValues = false;
 
             if (hasEmptyValues) {
-                const confirmMessage = `Se encontraron ${response.errors.valores_vacios.length} fila(s) con valores vacíos.\n\n¿Desea eliminar estas filas del archivo corregido?\n\nClic "Aceptar" para eliminarlas\nClic "Cancelar" para mantenerlas (marcadas como ERROR)`;
-                removeEmptyValues = window.confirm(confirmMessage);
+                const result = await Swal.fire({
+                    icon: 'question',
+                    title: 'Valores Vacíos Detectados',
+                    html: `Se encontraron <strong>${response.errors.valores_vacios.length}</strong> fila(s) con valores vacíos.<br><br>¿Qué desea hacer?`,
+                    showDenyButton: true,
+                    showCancelButton: true,
+                    confirmButtonText: 'Eliminar Filas',
+                    denyButtonText: 'Mantener (Marcadas ERROR)',
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: '#EF4444',
+                    denyButtonColor: '#F59E0B',
+                    cancelButtonColor: '#6B7280',
+                });
+
+                if (result.isDismissed) return;
+                removeEmptyValues = result.isConfirmed;
             }
 
             setLoading(true);
@@ -238,13 +364,30 @@ export default function Dashboard() {
             
             setLoading(false);
             
-            // Mensaje de confirmación
-            if (removeEmptyValues) {
-                alert(`✅ Archivo descargado. Se eliminaron ${response.errors.valores_vacios.length} fila(s) con valores vacíos.`);
-            }
+            // Mostrar alerta de éxito con info específica
+            const message = removeEmptyValues 
+                ? `Se eliminaron <strong>${response.errors.valores_vacios.length}</strong> fila(s) con valores vacíos`
+                : 'Se marcaron los errores encontrados';
+            
+            Swal.fire({
+                icon: 'success',
+                title: '¡Archivo Descargado!',
+                html: `El archivo corregido se descargó exitosamente.<br><br>${message}`,
+                confirmButtonText: 'Perfecto',
+                confirmButtonColor: '#10B981',
+                timer: 4000,
+                timerProgressBar: true,
+            });
         } catch (err) {
             setLoading(false);
             setError({ message: 'Error al generar archivo corregido: ' + (err.message || 'Error desconocido') });
+            Swal.fire({
+                icon: 'error',
+                title: 'Error al Descargar',
+                text: 'No se pudo generar el archivo corregido',
+                confirmButtonText: 'Entendido',
+                confirmButtonColor: '#A51C24',
+            });
         }
     };
 
@@ -313,13 +456,13 @@ export default function Dashboard() {
     // Función para obtener etiqueta legible del error
     const getErrorLabel = (errorType) => {
         const labels = {
-            'coords_duplicadas': '📍 Coordenadas Duplicadas',
-            'linea_duplicada_en_lote': '🔁 Líneas Duplicadas en Lote',
-            'posicion_duplicada_en_linea': '🔀 Posiciones Duplicadas en Línea',
-            'lote_invalido': '❌ Lotes Inválidos',
-            'rango_coord': '⚠️ Coordenadas Fuera de Rango',
-            'valores_vacios': '📭 Valores Vacíos',
-            'columnas_faltantes': '📋 Columnas Faltantes',
+            'coords_duplicadas': 'Coordenadas Duplicadas',
+            'linea_duplicada_en_lote': 'Líneas Duplicadas en Lote',
+            'posicion_duplicada_en_linea': 'Posiciones Duplicadas en Línea',
+            'lote_invalido': 'Lotes Inválidos',
+            'rango_coord': 'Coordenadas Fuera de Rango',
+            'valores_vacios': 'Valores Vacíos',
+            'columnas_faltantes': 'Columnas Faltantes',
         };
         return labels[errorType] || errorType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
     };
@@ -410,84 +553,198 @@ export default function Dashboard() {
     }, []);
 
     return (
-        <AuthenticatedLayout
-            header={
-                <h2 className="text-xl font-semibold leading-tight text-gray-800">
-                    Dashboard - Prueba de API Sioma
-                </h2>
-            }
-        >
-            <Head title="Dashboard" />
+        <SiomaLayout>
+            <Head title="Dashboard - SIOMA" />
 
-            <div className="py-12">
-                <div className="mx-auto max-w-7xl space-y-6 sm:px-6 lg:px-8">
-                    {/* API Sioma Section */}
-                    <div className="overflow-hidden bg-white shadow-sm sm:rounded-lg">
-                        <div className="p-6">
-                            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                                🌴 API de Sioma - Endpoints
-                            </h3>
-                            <div className="flex flex-wrap gap-3">
-                                <button
-                                    onClick={() => handleApiCall('/api/sioma/fincas')}
-                                    disabled={loading}
-                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition"
-                                >
-                                    📍 Obtener Fincas
-                                </button>
-                                <button
-                                    onClick={() => handleApiCall('/api/sioma/lotes')}
-                                    disabled={loading}
-                                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition"
-                                >
-                                    🗺️ Obtener Lotes
+            {/* Hero Section Estilo SIOMA */}
+            <section className="relative h-[600px] lg:h-[700px] overflow-hidden">
+                {/* Background con overlay curvo estilo SIOMA */}
+                <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
+                    {/* Lado Izquierdo - Imagen */}
+                    <div className="relative bg-cover bg-center" style={{backgroundImage: 'url(https://images.unsplash.com/photo-1625246333195-78d9c38ad449?w=800)'}}>
+                        <div className="absolute inset-0 bg-black/20"></div>
+                    </div>
+                    {/* Lado Derecho - Imagen */}
+                    <div className="relative bg-cover bg-center hidden lg:block" style={{backgroundImage: 'url(https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=800)'}}>
+                        <div className="absolute inset-0 bg-black/20"></div>
+                    </div>
+                </div>
+
+                {/* Overlay Curvo Rojo Estilo SIOMA */}
+                <div className="absolute inset-0 flex items-center justify-center">
+                    <svg className="absolute inset-0 w-full h-full" viewBox="0 0 1440 700" preserveAspectRatio="none">
+                        <defs>
+                            <linearGradient id="redGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" style={{stopColor:'#8B1538', stopOpacity:0.95}} />
+                                <stop offset="50%" style={{stopColor:'#A51C24', stopOpacity:0.98}} />
+                                <stop offset="100%" style={{stopColor:'#8B1538', stopOpacity:0.95}} />
+                            </linearGradient>
+                        </defs>
+                        <path fill="url(#redGradient)" d="M0,350 Q360,250 720,350 T1440,350 L1440,700 L0,700 Z" />
+                    </svg>
+                </div>
+
+                {/* Contenido Hero */}
+                <div className="relative z-10 h-full flex items-center justify-center px-4 sm:px-6 lg:px-8">
+                    <div className="text-center max-w-4xl">
+                        <h1 className="text-5xl sm:text-6xl lg:text-7xl font-black text-white mb-6 leading-tight tracking-tight drop-shadow-2xl">
+                            CADA LABOR<br/>
+                            <span className="text-red-600 bg-white px-4 inline-block shadow-2xl">BAJO CONTROL</span>
+                        </h1>
+                        <p className="text-xl sm:text-2xl text-white font-bold mb-8 max-w-2xl mx-auto drop-shadow-lg">
+                            Administra tareas con precisión y asegura resultados visibles con nuestra tecnología
+                        </p>
+                        <div className="inline-block bg-white px-8 py-4 rounded-full shadow-2xl">
+                            <span className="text-[#A51C24] font-black text-xl">SIOMA</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Dots Pattern */}
+                <div className="absolute bottom-20 right-10 opacity-30">
+                    <div className="grid grid-cols-8 gap-2">
+                        {[...Array(32)].map((_, i) => (
+                            <div key={i} className="w-2 h-2 bg-gray-600 rounded-full"></div>
+                        ))}
+                    </div>
+                </div>
+            </section>
+
+            {/* Sección de Optimización (Estilo SIOMA con imagen y texto) */}
+            <section className="py-20 bg-white">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+                        {/* Imagen del mapa */}
+                        <div className="order-2 lg:order-1">
+                            <div className="relative rounded-2xl overflow-hidden shadow-2xl">
+                                <img 
+                                    src="https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=800" 
+                                    alt="Mapa de gestión" 
+                                    className="w-full h-[500px] object-cover"
+                                />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent"></div>
+                            </div>
+                        </div>
+                        
+                        {/* Contenido */}
+                        <div className="order-1 lg:order-2">
+                            <h2 className="text-4xl lg:text-5xl font-black text-gray-900 mb-6 leading-tight">
+                                Optimización eficiente de las labores agrícolas
+                </h2>
+                            <p className="text-lg text-gray-700 leading-relaxed mb-8">
+                                Nos enfocamos en optimizar la administración de tus labores agrícolas. Sabemos que cada minuto y cada recurso cuenta, por lo que nuestras soluciones están diseñadas para ayudarte a organizar, planificar y ejecutar todas las tareas de tu plantación de manera eficiente, reduciendo la incertidumbre y mejorando los resultados.
+                            </p>
+                            <button className="px-8 py-4 bg-[#A51C24] text-white font-bold text-lg rounded-full hover:bg-[#8B1538] transition-colors shadow-lg">
+                                QUIERO SABER MÁS
                                 </button>
                             </div>
                         </div>
                     </div>
+            </section>
 
-                    {/* Upload Section */}
-                    <div className="overflow-hidden bg-white shadow-sm sm:rounded-lg">
-                        <div className="p-6">
-                            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                                📤 Subir y Validar Spots
-                            </h3>
-                            <div className="space-y-4">
+            {/* Sección Principal de Trabajo */}
+            <section className="py-20 bg-gray-50">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div className="space-y-8">
+                    {/* Upload Section - Diseño Profesional */}
+                    <div className="bg-white rounded-3xl shadow-2xl overflow-hidden border border-gray-100">
+                        {/* Header del formulario */}
+                        <div className="bg-gradient-to-r from-[#A51C24] to-[#8B1538] px-8 py-6">
+                            <div className="flex items-center gap-4">
+                                <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center">
+                                    <FontAwesomeIcon icon={faCloudArrowUp} className="text-3xl text-white" />
+                                </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                        Archivo CSV/XLSX
-                                    </label>
+                                    <h3 className="text-2xl font-black text-white mb-1">
+                                        Carga y Validación de Datos
+                                    </h3>
+                                    <p className="text-white/90 text-sm">
+                                        Importa archivos CSV o XLSX para análisis y validación automática
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        {/* Contenido del formulario */}
+                        <div className="p-8 space-y-8">
+                            {/* Sección de carga de archivo */}
+                            <div className="space-y-4">
+                                <div className="flex items-center gap-3 mb-4">
+                                    <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+                                        <FontAwesomeIcon icon={faFolder} className="text-xl text-blue-600" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-base font-black text-gray-900">
+                                            Seleccionar Archivo
+                                        </label>
+                                        <p className="text-sm text-gray-500">Formatos permitidos: CSV, XLSX, XLS</p>
+                                    </div>
+                                </div>
+                                
+                                <div className="relative">
                                     <input
                                         type="file"
                                         accept=".csv,.xlsx,.xls"
                                         onChange={handleFileChange}
-                                        className="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none"
+                                        className="block w-full text-sm text-gray-700 border-2 border-dashed border-gray-300 rounded-2xl cursor-pointer bg-gray-50/50 hover:bg-gray-50 hover:border-[#A51C24] focus:outline-none transition-all duration-300 file:mr-4 file:py-4 file:px-8 file:rounded-l-2xl file:border-0 file:text-sm file:font-bold file:bg-gradient-to-r file:from-[#A51C24] file:to-[#8B1538] file:text-white hover:file:from-[#8B1538] hover:file:to-[#A51C24] file:cursor-pointer file:transition-all file:shadow-lg"
                                     />
-                                    {selectedFile && (
-                                        <p className="mt-2 text-sm text-gray-600">
-                                            Archivo seleccionado: <span className="font-semibold">{selectedFile.name}</span>
-                                            {selectedFile.size && (
-                                                <span className="ml-2 text-gray-500">({(selectedFile.size / 1024).toFixed(2)} KB)</span>
-                                            )}
-                                        </p>
-                                    )}
+                                    <div className="absolute inset-0 pointer-events-none flex items-center justify-center opacity-30">
+                                        <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                        </svg>
+                                    </div>
+                                </div>
+                                
+                                {selectedFile && (
+                                    <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-5 rounded-2xl border-2 border-green-200 shadow-sm">
+                                        <div className="flex items-start gap-4">
+                                            <div className="flex-shrink-0 w-12 h-12 bg-green-500 rounded-xl flex items-center justify-center shadow-lg">
+                                                <FontAwesomeIcon icon={faCheckCircle} className="text-2xl text-white" />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-bold text-green-900 mb-1">Archivo cargado exitosamente</p>
+                                                <p className="text-sm text-green-700 truncate">
+                                                    <span className="font-semibold">{selectedFile.name}</span>
+                                                </p>
+                                                {selectedFile.size && (
+                                                    <p className="text-xs text-green-600 mt-1">
+                                                        Tamaño: {(selectedFile.size / 1024).toFixed(2)} KB
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                                 </div>
 
-                                {/* CSV Preview */}
+                            {/* CSV Preview con diseño profesional */}
                                 {loadingPreview && (
-                                    <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                                        <div className="flex items-center gap-2">
-                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                                            <span className="text-sm text-blue-700">Generando previsualización...</span>
+                                <div className="bg-blue-50 p-6 rounded-2xl border-2 border-blue-200 shadow-sm">
+                                    <div className="flex items-center gap-4">
+                                        <div className="flex-shrink-0">
+                                            <div className="animate-spin rounded-full h-10 w-10 border-4 border-blue-200 border-t-blue-600"></div>
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-bold text-blue-900">Procesando archivo...</p>
+                                            <p className="text-xs text-blue-700 mt-1">Generando previsualización de datos</p>
+                                        </div>
                                         </div>
                                     </div>
                                 )}
 
-                                {csvPreview && csvPreview.error && (
-                                    <div className="p-4 bg-red-50 rounded-lg border border-red-200">
-                                        <p className="text-sm text-red-700">❌ {csvPreview.error}</p>
+                            {csvPreview && csvPreview.error && (
+                                <div className="bg-red-50 p-6 rounded-2xl border-2 border-red-200 shadow-sm">
+                                    <div className="flex items-start gap-4">
+                                        <div className="flex-shrink-0 w-10 h-10 bg-red-500 rounded-xl flex items-center justify-center">
+                                            <FontAwesomeIcon icon={faXmark} className="text-2xl text-white" />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-bold text-red-900 mb-1">Error al procesar archivo</p>
+                                            <p className="text-sm text-red-700">{csvPreview.error}</p>
+                                        </div>
                                     </div>
-                                )}
+                                </div>
+                            )}
 
                                 {csvPreview && !csvPreview.error && (() => {
                                     const startIdx = (currentPage - 1) * rowsPerPage;
@@ -496,47 +753,52 @@ export default function Dashboard() {
                                     const totalPages = Math.ceil(csvPreview.totalRows / rowsPerPage);
 
                                     return (
-                                        <div className="border border-gray-300 rounded-lg overflow-hidden">
-                                            <div className="bg-gray-50 px-4 py-2 border-b border-gray-300">
-                                                <div className="flex items-center justify-between">
+                                    <div className="border-2 border-gray-200 rounded-2xl overflow-hidden shadow-lg">
+                                        <div className="bg-gradient-to-r from-gray-50 to-gray-100 px-6 py-4 border-b-2 border-gray-200">
+                                            <div className="flex items-center justify-between flex-wrap gap-4">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-10 h-10 bg-purple-500 rounded-xl flex items-center justify-center shadow-lg">
+                                                        <FontAwesomeIcon icon={faFileCircleCheck} className="text-xl text-white" />
+                                                    </div>
                                                     <div>
-                                                        <h4 className="text-sm font-semibold text-gray-900">
-                                                            📋 Previsualización del archivo
+                                                        <h4 className="text-base font-black text-gray-900">
+                                                            Previsualización de Datos
                                                         </h4>
-                                                        <p className="text-xs text-gray-600 mt-1">
-                                                            Mostrando {startIdx + 1}-{Math.min(endIdx, csvPreview.totalRows)} de {csvPreview.totalRows} filas
+                                                        <p className="text-xs text-gray-600 mt-0.5">
+                                                            {startIdx + 1}-{Math.min(endIdx, csvPreview.totalRows)} de {csvPreview.totalRows} registros
                                                         </p>
                                                     </div>
+                                                </div>
                                                     <div className="flex items-center gap-2">
-                                                        <button
-                                                            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                                                            disabled={currentPage === 1}
-                                                            className="px-3 py-1 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                                                        >
-                                                            ← Anterior
-                                                        </button>
-                                                        <span className="text-xs text-gray-600">
-                                                            Página {currentPage} de {totalPages}
+                                                    <button
+                                                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                                        disabled={currentPage === 1}
+                                                        className="px-4 py-2 text-sm font-bold text-gray-700 bg-white border-2 border-gray-300 rounded-xl hover:bg-gray-50 hover:border-[#A51C24] hover:text-[#A51C24] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm flex items-center gap-2"
+                                                    >
+                                                        <FontAwesomeIcon icon={faChevronLeft} /> Anterior
+                                                    </button>
+                                                    <span className="px-4 py-2 text-sm font-bold text-gray-900 bg-white border-2 border-gray-300 rounded-xl">
+                                                        {currentPage} / {totalPages}
                                                         </span>
-                                                        <button
-                                                            onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                                                            disabled={currentPage === totalPages}
-                                                            className="px-3 py-1 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                                                        >
-                                                            Siguiente →
-                                                        </button>
+                                                    <button
+                                                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                                        disabled={currentPage === totalPages}
+                                                        className="px-4 py-2 text-sm font-bold text-gray-700 bg-white border-2 border-gray-300 rounded-xl hover:bg-gray-50 hover:border-[#A51C24] hover:text-[#A51C24] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm flex items-center gap-2"
+                                                    >
+                                                        Siguiente <FontAwesomeIcon icon={faChevronRight} />
+                                                    </button>
                                                     </div>
                                                 </div>
                                             </div>
                                             <div className="overflow-x-auto">
-                                                <table className="min-w-full divide-y divide-gray-200">
-                                                    <thead className="bg-gray-100">
+                                            <table className="min-w-full divide-y-2 divide-gray-200">
+                                                <thead className="bg-gradient-to-r from-gray-100 to-gray-50">
                                                         <tr>
-                                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                        <th className="px-4 py-3 text-left text-xs font-black text-gray-700 uppercase tracking-wider bg-gray-100">
                                                                 #
                                                             </th>
                                                             {csvPreview.headers.map((header, idx) => (
-                                                                <th key={idx} className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                            <th key={idx} className="px-4 py-3 text-left text-xs font-black text-gray-700 uppercase tracking-wider">
                                                                     {header}
                                                                 </th>
                                                             ))}
@@ -544,13 +806,13 @@ export default function Dashboard() {
                                                     </thead>
                                                     <tbody className="bg-white divide-y divide-gray-200">
                                                         {paginatedRows.map((row, rowIdx) => (
-                                                            <tr key={rowIdx} className="hover:bg-gray-50">
-                                                                <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">
+                                                        <tr key={rowIdx} className="hover:bg-blue-50 transition-colors">
+                                                            <td className="px-4 py-3 whitespace-nowrap text-xs font-bold text-gray-500 bg-gray-50">
                                                                     {startIdx + rowIdx + 1}
                                                                 </td>
                                                                 {row.map((cell, cellIdx) => (
-                                                                    <td key={cellIdx} className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
-                                                                        {cell || <span className="text-gray-400 italic">vacío</span>}
+                                                                <td key={cellIdx} className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                                                                    {cell || <span className="text-gray-400 italic text-xs">vacío</span>}
                                                                     </td>
                                                                 ))}
                                                             </tr>
@@ -562,55 +824,92 @@ export default function Dashboard() {
                                     );
                                 })()}
 
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                        Seleccionar Finca {loadingFincas && <span className="text-gray-500 text-xs">(Cargando...)</span>}
-                                    </label>
+                            {/* Selector de Fincas - Diseño Profesional */}
+                            <div className="space-y-4">
+                                <div className="flex items-center gap-3 mb-4">
+                                    <div className="w-10 h-10 bg-orange-100 rounded-xl flex items-center justify-center">
+                                        <FontAwesomeIcon icon={faWheatAwn} className="text-xl text-orange-600" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-base font-black text-gray-900">
+                                            Seleccionar Finca
+                                            {loadingFincas && <span className="ml-2 text-sm font-normal text-gray-500">(Cargando...)</span>}
+                                        </label>
+                                        <p className="text-sm text-gray-500">Opcional: Asociar datos a una finca específica</p>
+                                    </div>
+                                </div>
+                                
                                     <select
                                         value={fincaId}
                                         onChange={(e) => setFincaId(e.target.value)}
                                         disabled={loadingFincas}
-                                        className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                    className="block w-full px-4 py-4 text-sm font-semibold text-gray-900 border-2 border-gray-300 rounded-2xl focus:ring-2 focus:ring-[#A51C24] focus:border-[#A51C24] disabled:bg-gray-100 disabled:cursor-not-allowed transition-all shadow-sm hover:border-[#A51C24] bg-white"
                                     >
-                                        <option value="">-- Seleccione una finca (opcional) --</option>
-                                        {fincas.map((finca, idx) => (
-                                            <option key={idx} value={finca.key_value || finca.id || finca.codigo || idx}>
-                                                {finca.nombre || finca.name || `Finca ${finca.key_value || finca.id || idx}`}
-                                            </option>
-                                        ))}
+                                    <option value="" className="font-semibold">-- Seleccione una finca (opcional) --</option>
+                                    {fincas.map((finca, idx) => (
+                                        <option key={idx} value={finca.key_value || finca.id || finca.codigo || idx} className="font-semibold">
+                                            {finca.nombre || finca.name || `Finca ${finca.key_value || finca.id || idx}`}
+                                        </option>
+                                    ))}
                                     </select>
-                                    {fincas.length === 0 && !loadingFincas && (
-                                        <p className="mt-1 text-sm text-amber-600">
-                                            ⚠️ No se pudieron cargar las fincas. Verifique la conexión con la API.
+                                
+                                {/* Indicadores de estado */}
+                                {fincas.length === 0 && !loadingFincas && (
+                                    <div className="bg-amber-50 p-4 rounded-xl border-2 border-amber-200">
+                                        <div className="flex items-start gap-3">
+                                            <div className="flex-shrink-0 w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center">
+                                                <FontAwesomeIcon icon={faExclamationTriangle} className="text-white" />
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-bold text-amber-900">No se encontraron fincas</p>
+                                                <p className="text-xs text-amber-700 mt-1">Verifique la conexión con la API</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {fincas.length > 0 && !fincaId && (
+                                    <div className="bg-blue-50 p-4 rounded-xl border-2 border-blue-200">
+                                        <p className="text-sm font-semibold text-blue-900 flex items-center gap-2">
+                                            <FontAwesomeIcon icon={faCheckCircle} className="text-green-500" />
+                                            {fincas.length} finca(s) disponible(s) para seleccionar
                                         </p>
-                                    )}
-                                    {fincas.length > 0 && !fincaId && (
-                                        <p className="mt-1 text-sm text-gray-500">
-                                            ✅ {fincas.length} finca(s) disponible(s)
+                                    </div>
+                                )}
+                                
+                                {fincaId && loadingLotes && (
+                                    <div className="bg-blue-50 p-4 rounded-xl border-2 border-blue-200">
+                                        <div className="flex items-center gap-3">
+                                            <div className="animate-spin rounded-full h-6 w-6 border-3 border-blue-200 border-t-blue-600"></div>
+                                            <p className="text-sm font-semibold text-blue-900">Cargando lotes asociados...</p>
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {fincaId && !loadingLotes && lotes.length > 0 && (
+                                    <div className="bg-green-50 p-4 rounded-xl border-2 border-green-200">
+                                        <p className="text-sm font-bold text-green-900 flex items-center gap-2">
+                                            <FontAwesomeIcon icon={faCheckCircle} className="text-green-600" />
+                                            {lotes.length} lote(s) encontrado(s) en esta finca
                                         </p>
-                                    )}
-                                    {fincaId && loadingLotes && (
-                                        <p className="mt-1 text-sm text-blue-600">
-                                            ⏳ Cargando lotes asociados...
+                                    </div>
+                                )}
+                                
+                                {fincaId && !loadingLotes && lotes.length === 0 && (
+                                    <div className="bg-amber-50 p-4 rounded-xl border-2 border-amber-200">
+                                        <p className="text-sm font-bold text-amber-900 flex items-center gap-2">
+                                            <FontAwesomeIcon icon={faExclamationTriangle} className="text-amber-600" />
+                                            No se encontraron lotes para esta finca
                                         </p>
-                                    )}
-                                    {fincaId && !loadingLotes && lotes.length > 0 && (
-                                        <p className="mt-1 text-sm text-green-600">
-                                            ✅ {lotes.length} lote(s) asociado(s) a esta finca
-                                        </p>
-                                    )}
-                                    {fincaId && !loadingLotes && lotes.length === 0 && (
-                                        <p className="mt-1 text-sm text-amber-600">
-                                            ⚠️ No se encontraron lotes asociados a esta finca
-                                        </p>
-                                    )}
+                                    </div>
+                                )}
                                 </div>
 
                                 {/* Visualización de Lotes Asociados */}
                                 {fincaId && !loadingLotes && lotes.length > 0 && (
                                     <div className="mt-4 p-4 bg-gradient-to-br from-green-50 to-blue-50 rounded-lg border-2 border-green-200 shadow-sm">
                                         <h4 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                                            <span className="text-2xl">🗺️</span>
+                                            <FontAwesomeIcon icon={faMapLocationDot} className="text-2xl text-green-600" />
                                             Lotes Asociados a la Finca ({lotes.length})
                                         </h4>
                                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -631,7 +930,7 @@ export default function Dashboard() {
                                                                 </span>
                                                             )}
                                                         </div>
-                                                        <span className="text-2xl opacity-50">🌴</span>
+                                                        <FontAwesomeIcon icon={faLeaf} className="text-2xl text-green-500 opacity-50" />
                                                     </div>
                                                     
                                                     {lote.grupo && (
@@ -652,8 +951,9 @@ export default function Dashboard() {
                                                 </div>
                                             ))}
                                         </div>
-                                        <p className="mt-3 text-sm text-gray-600 italic text-center">
-                                            💡 Haz clic en un lote para filtrarlo en el mapa
+                                        <p className="mt-3 text-sm text-gray-600 italic text-center flex items-center justify-center gap-2">
+                                            <FontAwesomeIcon icon={faCircleCheck} className="text-blue-500" />
+                                            <span>Haz clic en un lote para filtrarlo en el mapa</span>
                                         </p>
                                     </div>
                                 )}
@@ -665,13 +965,41 @@ export default function Dashboard() {
                                     </div>
                                 )}
 
+                            {/* Botón de Validación - Diseño Profesional */}
+                            <div className="pt-4 border-t-2 border-gray-200">
                                 <button
                                     onClick={handleFileUpload}
                                     disabled={loading || !selectedFile}
-                                    className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition"
+                                    className="w-full px-8 py-5 bg-gradient-to-r from-[#A51C24] to-[#8B1538] text-white font-black text-base rounded-2xl hover:from-[#8B1538] hover:to-[#A51C24] disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed transition-all duration-300 shadow-2xl hover:shadow-3xl transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-3"
                                 >
-                                    {loading ? '⏳ Procesando...' : '✅ Validar Archivo'}
+                                    {loading ? (
+                                        <>
+                                            <FontAwesomeIcon icon={faSpinner} className="text-2xl animate-spin" />
+                                            <span>PROCESANDO ARCHIVO...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <FontAwesomeIcon icon={faCircleCheck} className="text-xl" />
+                                            <span>VALIDAR Y ANALIZAR ARCHIVO</span>
+                                            <FontAwesomeIcon icon={faArrowRight} className="text-lg" />
+                                        </>
+                                    )}
                                 </button>
+                                <p className="text-center text-sm text-gray-500 mt-3 flex items-center justify-center gap-2">
+                                    {!selectedFile && (
+                                        <>
+                                            <FontAwesomeIcon icon={faExclamationTriangle} className="text-amber-500" />
+                                            <span>Debe seleccionar un archivo para continuar</span>
+                                        </>
+                                    )}
+                                    {selectedFile && !loading && (
+                                        <>
+                                            <FontAwesomeIcon icon={faCheckCircle} className="text-green-500" />
+                                            <span>Listo para validar</span>
+                                        </>
+                                    )}
+                                </p>
+                            </div>
                             </div>
                         </div>
                     </div>
@@ -690,7 +1018,9 @@ export default function Dashboard() {
                     {error && (
                         <div className="overflow-hidden bg-red-50 shadow-sm sm:rounded-lg">
                             <div className="p-6">
-                                <h4 className="text-lg font-semibold text-red-800 mb-2">❌ Error</h4>
+                                <h4 className="text-lg font-semibold text-red-800 mb-2 flex items-center gap-2">
+                                    <FontAwesomeIcon icon={faXmark} /> Error
+                                </h4>
                                 <pre className="text-sm text-red-700 whitespace-pre-wrap bg-red-100 p-4 rounded-lg overflow-auto max-h-96">
                                     {JSON.stringify(error, null, 2)}
                                 </pre>
@@ -702,12 +1032,17 @@ export default function Dashboard() {
                     {response && (
                         <div className="overflow-hidden bg-green-50 shadow-sm sm:rounded-lg">
                             <div className="p-6">
-                                <h4 className="text-lg font-semibold text-green-800 mb-2">✅ Respuesta</h4>
+                                <h4 className="text-lg font-semibold text-green-800 mb-2 flex items-center gap-2">
+                                    <FontAwesomeIcon icon={faCheckCircle} /> Respuesta
+                                </h4>
                                 
                                 {/* Validation Summary */}
                                 {response.meta && (
                                     <div className="mb-4 p-4 bg-white rounded-lg border border-green-200">
-                                        <h5 className="font-semibold text-gray-900 mb-2">📊 Resumen</h5>
+                                        <h5 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                                            <FontAwesomeIcon icon={faFileCircleCheck} className="text-green-600" />
+                                            Resumen
+                                        </h5>
                                         <div className="grid grid-cols-2 gap-2 text-sm">
                                             <div>
                                                 <span className="text-gray-600">Total de filas:</span>
@@ -720,7 +1055,17 @@ export default function Dashboard() {
                                             <div className="col-span-2">
                                                 <span className="text-gray-600">Estado:</span>
                                                 <span className={`ml-2 font-semibold ${response.ok ? 'text-green-600' : 'text-red-600'}`}>
-                                                    {response.ok ? '✅ Válido' : '❌ Con errores'}
+                                                    {response.ok ? (
+                                                        <span className="flex items-center gap-2">
+                                                            <FontAwesomeIcon icon={faCheckCircle} className="text-green-600" />
+                                                            Válido
+                                                        </span>
+                                                    ) : (
+                                                        <span className="flex items-center gap-2">
+                                                            <FontAwesomeIcon icon={faXmark} className="text-red-600" />
+                                                            Con errores
+                                                        </span>
+                                                    )}
                                                 </span>
                                             </div>
                                         </div>
@@ -730,7 +1075,10 @@ export default function Dashboard() {
                                 {/* Columns Detected */}
                                 {response.columns_detected && (
                                     <div className="mb-4 p-4 bg-white rounded-lg border border-green-200">
-                                        <h5 className="font-semibold text-gray-900 mb-2">📋 Columnas detectadas</h5>
+                                        <h5 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                                            <FontAwesomeIcon icon={faFile} className="text-blue-600" />
+                                            Columnas detectadas
+                                        </h5>
                                         <div className="flex flex-wrap gap-2">
                                             {response.columns_detected.map((col, idx) => (
                                                 <span key={idx} className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">
@@ -744,7 +1092,10 @@ export default function Dashboard() {
                                 {/* Errors */}
                                 {response.errors && Object.keys(response.errors).length > 0 && (
                                     <div className="mb-4 p-4 bg-white rounded-lg border border-red-200">
-                                        <h5 className="font-semibold text-red-900 mb-2">⚠️ Errores encontrados</h5>
+                                        <h5 className="font-semibold text-red-900 mb-2 flex items-center gap-2">
+                                            <FontAwesomeIcon icon={faExclamationTriangle} className="text-red-600" />
+                                            Errores encontrados
+                                        </h5>
                                         
                                         {/* Resumen total de errores */}
                                         {(() => {
@@ -767,7 +1118,7 @@ export default function Dashboard() {
                                             return (
                                                 <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
                                                     <div className="flex items-center gap-2 mb-2">
-                                                        <span className="text-lg">📊</span>
+                                                        <FontAwesomeIcon icon={faFileCircleCheck} className="text-red-600 text-lg" />
                                                         <h6 className="font-semibold text-red-900">Resumen Total</h6>
                                                     </div>
                                                     <div className="text-sm text-red-800">
@@ -790,14 +1141,14 @@ export default function Dashboard() {
                                             if (errorType === 'columnas_faltantes') {
                                                 const missingCols = Array.isArray(errors) ? errors : Object.keys(errors);
                                                 return (
-                                                    <div key={errorType} className="mb-3">
+                                            <div key={errorType} className="mb-3">
                                                         <h6 className="font-medium text-gray-900 mb-2">
                                                             {getErrorLabel(errorType)} ({missingCols.length} {missingCols.length === 1 ? 'columna' : 'columnas'})
-                                                        </h6>
+                                                </h6>
                                                         <div className="text-sm text-gray-700 bg-red-50 p-3 rounded max-h-40 overflow-auto border border-red-200">
                                                             <div className="font-semibold">
                                                                 Faltan las siguientes columnas requeridas: <span className="text-red-600">{missingCols.join(', ')}</span>
-                                                            </div>
+                                                </div>
                                                         </div>
                                                     </div>
                                                 );
@@ -815,8 +1166,8 @@ export default function Dashboard() {
                                                         {errorsArray.slice(0, 10).map((error, idx) => (
                                                             <div key={idx} className="mb-2 pb-2 border-b border-red-200 last:border-b-0">
                                                                 {renderErrorMessage(errorType, error)}
-                                                            </div>
-                                                        ))}
+                                            </div>
+                                        ))}
                                                         {errorsArray.length > 10 && (
                                                             <p className="text-gray-500 italic mt-2">
                                                                 ...y {errorsArray.length - 10} error(es) más
@@ -838,7 +1189,7 @@ export default function Dashboard() {
                                                     <div className="mt-4 pt-4 border-t border-red-200">
                                                         <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
                                                             <p className="text-sm text-yellow-800 text-center">
-                                                                ⚠️ <strong>No se puede generar archivo corregido:</strong>
+                                                                <FontAwesomeIcon icon={faExclamationTriangle} className="text-yellow-600" /> <strong>No se puede generar archivo corregido:</strong>
                                                                 <br />
                                                                 El archivo debe tener <strong>TODAS</strong> las columnas requeridas.
                                                                 <br /><br />
@@ -893,7 +1244,8 @@ export default function Dashboard() {
                         <div className="overflow-hidden bg-white shadow-sm sm:rounded-lg">
                             <div className="p-6">
                                 <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                                    🗺️ Visualización en Mapa
+                                    <FontAwesomeIcon icon={faMapLocationDot} className="mr-2" />
+                                    Visualización en Mapa
                                     {!response.ok && (
                                         <span className="ml-2 text-sm text-amber-600 font-normal">
                                             (Mostrando datos con errores)
@@ -919,7 +1271,7 @@ export default function Dashboard() {
                                             return (
                                                 <option key={idx} value={loteValue}>
                                                     {loteNombre} {lote.sigla && `(${lote.sigla})`}
-                                                </option>
+                                            </option>
                                             );
                                         })}
                                         {/* Lotes desde el archivo */}
@@ -957,13 +1309,28 @@ export default function Dashboard() {
                                             disabled={sendingToSioma || response.sentToSioma}
                                             className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition"
                                         >
-                                            {sendingToSioma ? '⏳ Enviando...' : response.sentToSioma ? '✅ Enviado a Sioma' : '🚀 Enviar a Sioma'}
+                                            {sendingToSioma ? (
+                                                <>
+                                                    <FontAwesomeIcon icon={faSpinner} className="animate-spin" /> Enviando...
+                                                </>
+                                            ) : response.sentToSioma ? (
+                                                <>
+                                                    <FontAwesomeIcon icon={faCheckCircle} /> Enviado a Sioma
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <FontAwesomeIcon icon={faArrowRight} /> Enviar a Sioma
+                                                </>
+                                            )}
                                         </button>
                                     )}
 
                                     {response.sentToSioma && (
                                         <div className="px-4 py-2 bg-green-100 border border-green-300 rounded-lg flex items-center gap-2">
-                                            <span className="text-green-800">✅ Datos enviados exitosamente a Sioma</span>
+                                            <span className="text-green-800 flex items-center gap-2">
+                                                <FontAwesomeIcon icon={faCheckCircle} className="text-green-600" />
+                                                Datos enviados exitosamente a Sioma
+                                            </span>
                                         </div>
                                     )}
                                 </div>
@@ -991,7 +1358,7 @@ export default function Dashboard() {
                         </div>
                     </div>
                 </div>
-            </div>
-        </AuthenticatedLayout>
+            </section>
+        </SiomaLayout>
     );
 }
