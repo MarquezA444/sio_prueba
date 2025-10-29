@@ -2,7 +2,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head } from '@inertiajs/react';
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import SpotsMap from '@/Components/SpotsMap';
+import MapboxMap from '@/Components/MapboxMap';
 
 export default function Dashboard() {
     const [loading, setLoading] = useState(false);
@@ -932,12 +932,10 @@ export default function Dashboard() {
                                 </div>
 
                                 {/* Mapa */}
-                                <SpotsMap 
+                                <MapboxMap 
                                     spots={spotsData}
                                     selectedLote={selectedLote}
-                                    showLines={true}
-                                    showPerimeter={true}
-                                    height="600px"
+                                    fincaId={fincaId}
                                 />
 
                                 {/* Botones de acción */}
