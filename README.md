@@ -1,341 +1,221 @@
-# 🧠 Hackathon 2025 – Interfaz Inteligente de Spots
+# 🧠 Hackathon 2025 – Geo‑Visor de Spots (Laravel + React + Mapbox + FastAPI)
 
-## 📋 Descripción
+Aplicación web que permite cargar, validar, previsualizar por lote y enviar a la API de Sioma datos georreferenciados de palmas (spots). Incluye un validador híbrido (Python + PHP) y visualización profesional con Mapbox GL JS.
 
-Aplicación web desarrollada para el Hackathon 2025 que permite validar y enviar datos georreferenciados de palmas (spots) a la plataforma Sioma.
+## 🎯 Características
 
-## 🎯 Características Principales
+- ✅ Carga de archivos `.csv`/`.xlsx`
+- ✅ Validación automática (coordenadas duplicadas, línea/posición por lote, lotes válidos, valores vacíos)
+- ✅ Resumen de errores/advertencias y descarga de archivo corregido
+- ✅ Mapa interactivo por lote con puntos, líneas de palma y perímetro aproximado
+- ✅ Envío de datos validados a la API de Sioma
+- ✅ Optimizada para archivos grandes (clustering, límites progresivos y líneas segmentadas)
 
-- ✅ **Carga de archivos** CSV/XLSX con datos de spots
-- ✅ **Validación automática** de datos (duplicados, inconsistencias, rangos)
-- ✅ **Integración con API Sioma** para obtener fincas y lotes
-- ✅ **Mapa interactivo** con visualización por lote
-- ✅ **Líneas de palma** y perímetro del lote visibles
-- ✅ **Archivos corregidos** con errores marcados
-- ✅ **Envío a Sioma** de datos validados
+---
 
-## 🚀 Instalación
+## 🛠 Tecnologías utilizadas
 
-### Requisitos
+### Backend (PHP)
+- Laravel 12 (Framework)
+- Inertia.js (Bridge SPA)
+- Guzzle (Cliente HTTP)
+- Maatwebsite/Excel (Importación CSV/XLSX)
 
-- PHP 8.2 o superior
-- Python 3.11+ (opcional, para validaciones robustas)
+### Frontend (JS)
+- React 18
+- Vite (Dev server y build)
+- Tailwind CSS
+- Axios (HTTP)
+- Mapbox GL JS + react-map-gl (Mapa satelital 3D y capas vectoriales)
+
+### Validador (Python)
+- FastAPI (Microservicio)
+- Pandas (Procesamiento de datos)
+- OpenPyXL (Lectura XLSX)
+
+### Infraestructura / Otros
+- Docker y Docker Compose (opcional para el validador)
+- SQLite por defecto (puedes cambiar a MySQL/PostgreSQL)
+
+---
+
+## 📦 Requisitos
+
+- PHP 8.2+
 - Composer
-- Node.js y npm
-- Base de datos SQLite (incluida)
-- Docker (opcional, para el validador Python)
+- Node.js 18+ y npm
+- Python 3.11+ (si usas el validador local sin Docker)
+- Docker Desktop (opcional, recomendado para el validador)
+- Token de Mapbox (gratuito)
 
-### Pasos de instalación
+---
 
-1. **Clonar el repositorio**
-   ```bash
-   git clone <url-del-repositorio>
-   cd siomav_1
-   ```
+## 🚀 Instalación y configuración
 
-2. **Instalar dependencias PHP**
-   ```bash
-   composer install
-   ```
-
-3. **Instalar dependencias JavaScript**
-   ```bash
-   npm install
-   ```
-
-4. **Configurar variables de entorno**
-   ```bash
-   cp .env.example .env
-   php artisan key:generate
-   ```
-
-   Editar `.env` y agregar:
-   ```env
-   SIOMA_API_BASE=https://api.sioma.dev
-   SIOMA_API_TOKEN=tu_token_aqui
-   SIOMA_API_TIMEOUT=30
-   
-   # Validador Python (opcional, usa PHP si no está disponible)
-   PYTHON_VALIDATOR_URL=http://localhost:8001
-   PYTHON_VALIDATOR_TIMEOUT=120
-   ```
-
-5. **Instalar validador Python (opcional pero recomendado)**
-   
-   **Opción A: Con Docker Compose (Más fácil)**
-   ```bash
-   docker-compose up -d python-validator
-   ```
-   
-   **Opción B: Con Docker manual**
-   ```bash
-   cd python-validator
-   docker build -t sioma-validator .
-   docker run -d -p 8001:8001 --name sioma-validator sioma-validator
-   ```
-   
-   **Opción C: Sin Docker**
-   ```bash
-   cd python-validator
-   python -m venv venv
-   source venv/bin/activate  # En Windows: venv\Scripts\activate
-   pip install -r requirements.txt
-   uvicorn app.main:app --host 0.0.0.0 --port 8001
-   ```
-   
-   Verificar que el servicio está funcionando:
-   ```bash
-   curl http://localhost:8001/health
-   ```
-
-6. **Ejecutar migraciones**
-   ```bash
-   php artisan migrate
-   ```
-
-7. **Compilar assets frontend**
-   ```bash
-   npm run build
-   ```
-
-## 🏃 Ejecución
-
-### Modo desarrollo
-
-Ejecutar en terminales separadas:
-
-**Terminal 1: Servidor Laravel**
+1) Clonar e instalar dependencias
 ```bash
-php artisan serve
+git clone <url-del-repositorio>
+cd siomav_1
+composer install
+npm install
 ```
 
-**Terminal 2: Vite (Hot reload)**
+2) Variables de entorno
 ```bash
+cp .env.example .env
+php artisan key:generate
+```
+Editar `.env` (valores de ejemplo):
+```env
+APP_URL=http://localhost
+
+SIOMA_API_BASE=https://api.sioma.dev
+SIOMA_API_TOKEN=tu_token_sioma
+SIOMA_API_TIMEOUT=30
+
+# Dirección del microservicio Python (FastAPI)
+PYTHON_VALIDATOR_URL=http://localhost:8001
+PYTHON_VALIDATOR_TIMEOUT=120
+
+# Token de Mapbox (obligatorio para el mapa)
+VITE_MAPBOX_TOKEN=pk.tu_token_publico
+```
+
+3) Base de datos y migraciones
+```bash
+php artisan migrate
+```
+
+4) Validador Python (elige una opción)
+
+- Opción A: Docker Compose (recomendado)
+```bash
+docker-compose up -d python-validator
+# Verifica salud
+curl http://localhost:8001/health
+```
+
+- Opción B: Local (sin Docker)
+```bash
+cd python-validator
+python -m venv venv
+venv\Scripts\activate   # Windows
+# source venv/bin/activate  # Linux/Mac
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8001
+```
+
+5) Token de Mapbox
+
+- Crea una cuenta y token público en `https://account.mapbox.com`
+- Colócalo en `VITE_MAPBOX_TOKEN` del `.env`
+
+6) Ejecutar en desarrollo
+
+En dos terminales:
+```bash
+# Terminal 1 – API Laravel
+php artisan serve
+
+# Terminal 2 – Frontend Vite
 npm run dev
 ```
+App: `http://localhost:8000`
 
-Acceder a: `http://localhost:8000`
+7) Build de producción (opcional)
+```bash
+npm run build
+```
 
-### Iniciar sesión
+---
 
-- Registrarse en `/register`
-- O usar las credenciales por defecto (si existen)
+## 🧭 Flujo de uso
 
-## 📖 Uso
-
-### Flujo de trabajo
-
-1. **Seleccionar Finca**: Elegir una finca del dropdown (obtenida desde API Sioma)
-
-2. **Subir archivo**: 
-   - Seleccionar archivo CSV/XLSX con estructura:
+1. Selecciona la finca (lista desde API Sioma) y el lote (por finca).
+2. Sube un archivo `.csv` o `.xlsx` con columnas base:
    ```
-   Latitud,Longitud,Línea palma,Posición palma,Lote
-   7.33657685,-76.72322992,1,1,1
+   Latitud, Longitud, Línea palma, Posición palma, Lote
    ```
+3. Presiona “Validar datos”. El sistema usa el validador Python (si está disponible) o PHP si no.
+4. Revisa el resumen de errores/advertencias. Descarga opcionalmente el archivo corregido.
+5. Previsualiza el lote en el mapa (puntos, líneas, perímetro). Cambia de lote para evitar cargar toda la finca.
+6. Envía los datos validados a la API de Sioma.
 
-3. **Validar datos**: 
-   - Click en "Validar Archivo"
-   - Se ejecutarán las validaciones:
-     - Coordenadas duplicadas
-     - Líneas duplicadas en lote
-     - Posiciones duplicadas en línea
-     - Rangos de coordenadas
-     - Lotes válidos según finca
+---
 
-4. **Revisar errores**: 
-   - Si hay errores, descargar archivo corregido con filas marcadas
-   - Corregir manualmente según indicaciones
+## 🧪 Validaciones implementadas
 
-5. **Visualizar en mapa**: 
-   - Seleccionar un lote específico
-   - Ver puntos, líneas y perímetro en el mapa interactivo
+- ❌ Coordenadas duplicadas (latitud/longitud)
+- ❌ En un mismo lote no se repiten líneas
+- ❌ En una línea no se repiten posiciones
+- ❌ Lotes válidos según la finca seleccionada
+- ⚠️ Valores vacíos o en blanco
+- Resumen total de errores/advertencias y detalle por filas
 
-6. **Enviar a Sioma**: 
-   - Click en "Enviar a Sioma" cuando los datos estén correctos
-   - Confirmar el envío exitoso
+Archivo corregido: se filtran duplicados, opcionalmente se eliminan filas vacías (confirmación en UI) y se generan columnas `Estado` y `Errores`.
 
-## 🗂️ Estructura del Proyecto
+---
+
+## 🗺 Visualización (Mapbox GL JS)
+
+- Estilo satélite con cámara animada
+- Terreno 3D (habilitado para datasets medianos)
+- Clustering de puntos a bajos niveles de zoom
+- Puntos individuales con etiquetas de posición
+- Líneas de palma por lote (ordenadas por posición y segmentadas por distancia)
+- Perímetro aproximado por lote (bounding box)
+- Optimizaciones anti‑bloqueo para archivos grandes
+
+El token se inyecta desde `VITE_MAPBOX_TOKEN` y se usa en `resources/js/Components/MapboxMap.jsx`.
+
+---
+
+## 🔌 Endpoints internos
+
+Backend Laravel expone (prefijo principal puede variar según rutas):
+
+- `GET /api/sioma/fincas`
+- `GET /api/sioma/lotes?finca_id=...`
+- `POST /api/v1/map/upload-spots` (subida + validación)
+- `POST /api/v1/map/send-to-sioma` (envío a Sioma)
+- `POST /api/v1/map/download-corrected` (descarga CSV corregido)
+
+Cliente Sioma: `app/Services/ApiSiomaClient.php`
+Validación PHP: `app/Services/SpotValidationService.php`
+Validador Python: `python-validator/app/main.py` y `python-validator/app/validators.py`
+
+---
+
+## 🗂 Estructura relevante
 
 ```
-siomav_1/
-├── app/
-│   ├── Http/Controllers/
-│   │   ├── SiomaController.php      # Proxy API Sioma
-│   │   └── SpotController.php       # Validación y envío
-│   ├── Services/
-│   │   ├── ApiSiomaClient.php       # Cliente HTTP para Sioma
-│   │   └── SpotValidationService.php # Lógica de validación
-│   └── Imports/
-│       └── SpotsImport.php          # Importador Excel
-├── resources/js/
-│   ├── Pages/
-│   │   └── Dashboard.jsx            # Panel principal
-│   └── Components/
-│       └── SpotsMap.jsx             # Componente de mapa
-├── routes/
-│   └── web.php                      # Rutas de la aplicación
-└── config/
-    └── sioma.php                    # Configuración API Sioma
+resources/js/
+├── Pages/Dashboard.jsx          # UI principal (carga/validación/mapa)
+└── Components/MapboxMap.jsx     # Mapa (Mapbox GL JS)
+
+app/Http/Controllers/
+├── MapController.php            # Flujo de mapa, descarga corregido y envío
+├── SpotController.php           # Flujo de upload/validación clásico
+└── SiomaController.php          # Proxy a API Sioma (fincas/lotes)
+
+app/Services/
+├── ApiSiomaClient.php           # Cliente HTTP Sioma
+└── SpotValidationService.php    # Validador PHP (fallback)
+
+python-validator/
+└── app/{main.py, validators.py} # FastAPI + Pandas
 ```
 
-## 🧪 Validaciones Implementadas
+---
 
-### ✅ Validaciones de Lógica
+## 🧰 Troubleshooting
 
-- **Coordenadas duplicadas**: No permite lat/lon repetidos
-- **Líneas en lote**: Verifica que no se repitan líneas en el mismo lote
-- **Posiciones en línea**: Verifica que no se repitan posiciones en la misma línea
-- **Rangos válidos**: Latitud [-90, 90], Longitud [-180, 180]
-- **Lotes válidos**: Verifica contra la API de Sioma si se selecciona finca
+- “Style is not done loading” en Mapbox: el componente espera a que cargue el estilo antes de agregar capas.
+- “Out of Memory”: selecciona un lote; el mapa limita spots y líneas progresivamente.
+- 500 al descargar corregidos: usa `/api/v1/map/download-corrected` (implementado en `MapController`).
+- Token de Mapbox inválido: revisa `VITE_MAPBOX_TOKEN` y reinicia `npm run dev`.
 
-### 🔧 Sistema de Validación Híbrido
-
-La aplicación usa un sistema **híbrido** de validación:
-
-1. **Validador Python (Primera opción)**: 
-   - Usa **pandas** para procesamiento eficiente de datos
-   - Más robusto para archivos grandes
-   - Validaciones optimizadas con DataFrames
-   - Generación de archivos corregidos
-
-2. **Validador PHP (Fallback)**:
-   - Se activa si Python no está disponible
-   - Validaciones básicas implementadas con Laravel Collections
-   - Garantiza funcionamiento continuo
-
-El sistema automáticamente usa Python si está disponible, haciendo fallback a PHP si no lo está.
-
-### ⚠️ Archivo Corregido
-
-Cuando hay errores, se genera un archivo CSV con una columna adicional "Estado" que marca:
-- `OK`: Fila sin errores
-- `ERROR`: Fila con algún error
-
-## 🗺️ Mapa Interactivo
-
-Características:
-- Visualización por lote seleccionado
-- Marcadores para cada spot
-- Líneas de palma conectadas por color
-- Perímetro aproximado del lote
-- Popups con información de cada spot
-
-## 🔌 API Endpoints
-
-### Consultar Fincas
-```http
-GET /api/sioma/fincas
-```
-
-### Consultar Lotes
-```http
-GET /api/sioma/lotes
-```
-
-### Subir y Validar Spots
-```http
-POST /api/v1/spots/upload
-Content-Type: multipart/form-data
-
-file: <archivo>
-finca_id: <opcional>
-```
-
-### Enviar a Sioma
-```http
-POST /api/v1/spots/send-sioma
-Content-Type: application/json
-
-{
-  "spots": [...],
-  "finca_id": "..."
-}
-```
-
-## 🛠️ Tecnologías
-
-### Backend
-- **Laravel 12** - Framework PHP
-- **Inertia.js** - Bridge SPA
-- **Maatwebsite Excel** - Procesamiento de archivos
-- **Guzzle HTTP** - Cliente API
-
-### Frontend
-- **React 18** - UI Library
-- **Tailwind CSS** - Estilos
-- **Leaflet** - Mapas interactivos
-- **Axios** - HTTP Client
-
-## 📝 Notas de Implementación
-
-### Pendiente según Documentación API Sioma
-
-El endpoint de envío a Sioma está implementado pero necesita ajustes según la documentación oficial de la API:
-
-- Endpoint exacto para enviar spots
-- Formato de payload requerido
-- Parámetros de autenticación adicionales
-
-Archivo: `app/Services/ApiSiomaClient.php` - Método `sendSpots()`
-
-## 🎯 Criterios del Hackathon
-
-| Criterio | Estado | Nota |
-|----------|--------|------|
-| **Integración técnica** | ✅ Completo | API Sioma + Procesamiento archivos |
-| **Validación de datos** | ✅ Completo | Todas las validaciones requeridas |
-| **Visualización** | ✅ Completo | Mapa interactivo con líneas y perímetro |
-| **UX/UI** | ✅ Completo | Interfaz intuitiva y moderna |
-| **Código y documentación** | ✅ Completo | README y código organizado |
-
-## 👥 Autores
-
-Desarrollado para Hackathon 2025
-
-## 🐍 Validador Python - Detalles Técnicos
-
-### Arquitectura
-
-El validador Python es un microservicio independiente que usa:
-- **FastAPI**: Framework web moderno y rápido
-- **Pandas**: Procesamiento eficiente de datos
-- **OpenPyXL**: Lectura de archivos Excel
-
-### Endpoints disponibles
-
-```http
-GET /health
-# Verifica el estado del servicio
-
-POST /api/validate-spots
-Content-Type: multipart/form-data
-
-# Parámetros:
-- file: Archivo CSV/XLSX
-- finca_id: ID de finca (opcional)
-
-# Respuesta:
-{
-  "meta": {...},
-  "columns_detected": [...],
-  "errors": {...},
-  "warnings": [],
-  "ok": true/false
-}
-```
-
-### Ventajas del validador Python
-
-1. **Performance**: Pandas es extremadamente eficiente para procesar datasets grandes
-2. **Validaciones avanzadas**: Más fácil implementar validaciones complejas
-3. **Escalabilidad**: Puede manejar miles de registros sin problema
-4. **Independencia**: No afecta el rendimiento de Laravel
-5. **Reutilizable**: Puede usarse desde otras aplicaciones
-
-### Sin validador Python
-
-Si no se configura el servicio Python, la aplicación funcionará normalmente usando el validador PHP como fallback. Las validaciones funcionarán igual, pero con menor rendimiento en archivos grandes.
+---
 
 ## 📄 Licencia
 
