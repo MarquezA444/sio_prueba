@@ -110,11 +110,13 @@ class SpotController extends Controller
         $validated = $request->validate([
             'file' => 'required|file|mimes:csv,xlsx,xls|max:20480',
             'errors' => 'required|string', // JSON string from frontend
+            'remove_empty_values' => 'nullable|string', // '1' or '0'
         ]);
 
         try {
             $file = $validated['file'];
             $errors = json_decode($validated['errors'], true);
+            $removeEmpty = ($validated['remove_empty_values'] ?? '0') === '1';
             
             if (!$errors || !is_array($errors)) {
                 return response()->json(['error' => 'Invalid errors format'], 400);
@@ -126,20 +128,35 @@ class SpotController extends Controller
                 $file
             );
             
-            $rows = $sheets->flatten(1);
+            $rows = $sheets->first();
             
-            // Extract headers from first row
+            // Extract headers from first row and normalize them
             $firstRow = $rows->first();
-            $headers = array_keys($firstRow->toArray());
+            $originalHeaders = array_keys($firstRow->toArray());
+            
+            // Normalize headers to match expected format
+            $normalizedHeaders = [];
+            foreach ($originalHeaders as $header) {
+                $normalizedHeaders[] = $this->normalizeColumnName($header);
+            }
+            
+            // Add status and errors columns
+            $headers = array_merge($normalizedHeaders, ['Estado', 'Errores']);
             
             // Identify rows to remove
             $rowsToRemove = new \Illuminate\Support\Collection();
             
-            // Process errors to identify duplicated rows (keep first, remove duplicates)
+            // Process errors to identify rows to remove
             foreach ($errors as $errorType => $errorList) {
                 if (is_array($errorList)) {
                     foreach ($errorList as $error) {
                         if (isset($error['row'])) {
+                            // Si removeEmpty = true, eliminar filas con valores vacíos
+                            // Si removeEmpty = false, solo eliminar duplicados
+                            if ($errorType === 'valores_vacios' && !$removeEmpty) {
+                                // No eliminar, solo marcar
+                                continue;
+                            }
                             $rowsToRemove->push($error['row']);
                         }
                     }
@@ -150,15 +167,17 @@ class SpotController extends Controller
             $output = fopen('php://temp', 'r+');
             
             // Write headers
-            fputcsv($output, array_merge($headers, ['Estado', 'Errores']));
+            fputcsv($output, $headers);
             
-            // Write rows (filter out duplicate rows)
+            // Write rows (filter out duplicate rows and optionally empty values)
             foreach ($rows as $index => $row) {
                 $rowNumber = $index + 2; // +2 for header and 0-index
                 
-                // Skip rows marked for removal (duplicates)
-                if ($rowsToRemove->contains($rowNumber)) {
-                    continue;
+                // Normalize row data to match expected column names
+                $normalizedRow = [];
+                foreach ($row->toArray() as $key => $value) {
+                    $normalizedKey = $this->normalizeColumnName($key);
+                    $normalizedRow[$normalizedKey] = $value;
                 }
                 
                 // Get error types for this row
@@ -173,8 +192,13 @@ class SpotController extends Controller
                     }
                 }
                 
-                $status = empty($errorTypes) ? 'OK' : 'WARNING';
-                $rowArray = array_values($row->toArray());
+                // Skip rows marked for removal
+                if ($rowsToRemove->contains($rowNumber)) {
+                    continue;
+                }
+                
+                $status = empty($errorTypes) ? 'OK' : 'ERROR';
+                $rowArray = array_values($normalizedRow);
                 fputcsv($output, array_merge($rowArray, [$status, implode(', ', $errorTypes)]));
             }
             
@@ -195,6 +219,38 @@ class SpotController extends Controller
                 'error' => true,
                 'message' => 'Error al generar archivo corregido: ' . $e->getMessage(),
             ], 500);
+        }
+    }
+
+    /**
+     * Normalize column name to match expected format
+     */
+    private function normalizeColumnName($columnName)
+    {
+        $columnName = strtolower(trim($columnName));
+        
+        // Latitud
+        if (in_array($columnName, ['latitud', 'lat', 'latitude'])) {
+            return 'latitud';
+        }
+        // Longitud
+        elseif (in_array($columnName, ['longitud', 'lon', 'lng', 'long', 'longitude'])) {
+            return 'longitud';
+        }
+        // Línea
+        elseif (in_array($columnName, ['linea', 'línea', 'line', 'linea_palma'])) {
+            return 'linea';
+        }
+        // Posición
+        elseif (in_array($columnName, ['posicion', 'posición', 'position', 'posicion_palma', 'palma', 'palma_num'])) {
+            return 'posicion';
+        }
+        // Lote
+        elseif (in_array($columnName, ['lote', 'lot'])) {
+            return 'lote';
+        }
+        else {
+            return $columnName;
         }
     }
 
