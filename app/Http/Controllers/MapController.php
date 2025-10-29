@@ -186,39 +186,6 @@ class MapController extends Controller
         }
     }
 
-    /**
-     * Download corrected file with error markers
-     *
-     * @param Request $request
-     * @return \Illuminate\Http\Response
-     */
-    public function downloadCorrectedFile(Request $request)
-    {
-        $validated = $request->validate([
-            'file' => 'required|file|mimes:csv,xlsx,xls|max:20480',
-            'errors' => 'required|string', // JSON string of errors
-        ]);
-
-        try {
-            $file = $request->file('file');
-            $errors = json_decode($validated['errors'], true);
-
-            // Procesar archivo y generar versión corregida
-            $correctedData = $this->generateCorrectedFile($file, $errors);
-
-            $fileName = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME) . '_corregido.csv';
-
-            return response($correctedData)
-                ->header('Content-Type', 'text/csv; charset=utf-8')
-                ->header('Content-Disposition', 'attachment; filename="' . $fileName . '"');
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error al generar archivo corregido: ' . $e->getMessage(),
-            ], 500);
-        }
-    }
 
     /**
      * Get map configuration and settings
@@ -394,5 +361,160 @@ class MapController extends Controller
             'lotes' => $lotes,
             'lineas' => $lineas,
         ];
+    }
+
+    /**
+     * Download corrected file with error markers
+     *
+     * @param Request $request
+     * @return \Symfony\Component\HttpFoundation\StreamedResponse
+     */
+    public function downloadCorrectedFile(Request $request)
+    {
+        $validated = $request->validate([
+            'file' => 'required|file|mimes:csv,xlsx,xls|max:20480',
+            'errors' => 'required|string', // JSON string from frontend
+            'remove_empty_values' => 'nullable|string', // '1' or '0'
+        ]);
+
+        try {
+            $file = $validated['file'];
+            $errors = json_decode($validated['errors'], true);
+            $removeEmpty = ($validated['remove_empty_values'] ?? '0') === '1';
+            
+            if (!$errors || !is_array($errors)) {
+                return response()->json(['error' => 'Invalid errors format'], 400);
+            }
+            
+            // Read file
+            $sheets = \Maatwebsite\Excel\Facades\Excel::toCollection(
+                new \App\Imports\SpotsImport,
+                $file
+            );
+            
+            $rows = $sheets->first();
+            
+            // Extract headers from first row and normalize them
+            $firstRow = $rows->first();
+            $originalHeaders = array_keys($firstRow->toArray());
+            
+            // Normalize headers to match expected format
+            $normalizedHeaders = [];
+            foreach ($originalHeaders as $header) {
+                $normalizedHeaders[] = $this->normalizeColumnName($header);
+            }
+            
+            // Add status and errors columns
+            $headers = array_merge($normalizedHeaders, ['Estado', 'Errores']);
+            
+            // Identify rows to remove
+            $rowsToRemove = new \Illuminate\Support\Collection();
+            
+            // Process errors to identify rows to remove
+            foreach ($errors as $errorType => $errorList) {
+                if (is_array($errorList)) {
+                    foreach ($errorList as $error) {
+                        if (isset($error['row'])) {
+                            // Si removeEmpty = true, eliminar filas con valores vacíos
+                            // Si removeEmpty = false, solo eliminar duplicados
+                            if ($errorType === 'valores_vacios' && !$removeEmpty) {
+                                // No eliminar, solo marcar
+                                continue;
+                            }
+                            $rowsToRemove->push($error['row']);
+                        }
+                    }
+                }
+            }
+            
+            // Generate CSV content
+            $output = fopen('php://temp', 'r+');
+            
+            // Write headers
+            fputcsv($output, $headers);
+            
+            // Write rows (filter out duplicate rows and optionally empty values)
+            foreach ($rows as $index => $row) {
+                $rowNumber = $index + 2; // +2 for header and 0-index
+                
+                // Normalize row data to match expected column names
+                $normalizedRow = [];
+                foreach ($row->toArray() as $key => $value) {
+                    $normalizedKey = $this->normalizeColumnName($key);
+                    $normalizedRow[$normalizedKey] = $value;
+                }
+                
+                // Get error types for this row
+                $errorTypes = [];
+                foreach ($errors as $errorType => $errorList) {
+                    if (is_array($errorList)) {
+                        foreach ($errorList as $error) {
+                            if (isset($error['row']) && $error['row'] == $rowNumber) {
+                                $errorTypes[] = $errorType;
+                            }
+                        }
+                    }
+                }
+                
+                // Skip rows marked for removal
+                if ($rowsToRemove->contains($rowNumber)) {
+                    continue;
+                }
+                
+                $status = empty($errorTypes) ? 'OK' : 'ERROR';
+                $rowArray = array_values($normalizedRow);
+                fputcsv($output, array_merge($rowArray, [$status, implode(', ', $errorTypes)]));
+            }
+            
+            rewind($output);
+            
+            $filename = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME) . '_corregido.csv';
+            
+            return response()->streamDownload(function () use ($output) {
+                echo stream_get_contents($output);
+                fclose($output);
+            }, $filename, [
+                'Content-Type' => 'text/csv; charset=utf-8',
+                'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => true,
+                'message' => 'Error al generar archivo corregido: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Normalize column name to match expected format
+     */
+    private function normalizeColumnName($columnName)
+    {
+        $columnName = strtolower(trim($columnName));
+        
+        // Latitud
+        if (in_array($columnName, ['latitud', 'lat', 'latitude'])) {
+            return 'latitud';
+        }
+        // Longitud
+        elseif (in_array($columnName, ['longitud', 'lon', 'lng', 'long', 'longitude'])) {
+            return 'longitud';
+        }
+        // Línea
+        elseif (in_array($columnName, ['linea', 'línea', 'line', 'linea_palma'])) {
+            return 'linea';
+        }
+        // Posición
+        elseif (in_array($columnName, ['posicion', 'posición', 'position', 'posicion_palma', 'palma', 'palma_num'])) {
+            return 'posicion';
+        }
+        // Lote
+        elseif (in_array($columnName, ['lote', 'lot'])) {
+            return 'lote';
+        }
+        else {
+            return $columnName;
+        }
     }
 }
