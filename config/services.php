@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'python_validator' => [
+        'url' => env('PYTHON_VALIDATOR_URL', 'http://localhost:8001'),
+        'timeout' => env('PYTHON_VALIDATOR_TIMEOUT', 120),
+    ],
+
 ];

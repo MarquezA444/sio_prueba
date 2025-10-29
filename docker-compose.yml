@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  python-validator:
+    build:
+      context: ./python-validator
+      dockerfile: Dockerfile
+    container_name: sioma-python-validator
+    ports:
+      - "8001:8001"
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./python-validator/app:/app/app
+    restart: unless-stopped
+    networks:
+      - sioma-network
+
+networks:
+  sioma-network:
+    driver: bridge
+
