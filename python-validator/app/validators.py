@@ -119,17 +119,32 @@ class SpotValidator:
                     })
         
         # 4. Validar líneas duplicadas en lote
+        # Solo reporta error si hay MÚLTIPLES registros con EXACTAMENTE la misma línea EN EL MISMO lote
+        # (Una línea puede tener múltiples posiciones, eso es normal)
         lote_linea_groups = self.df.groupby(['lote', 'linea'], dropna=False)
         for (lote, linea), group in lote_linea_groups:
-            if len(group) > 1:
+            # Obtener posiciones únicas
+            posiciones_unicas = group['posicion'].nunique()
+            total_registros = len(group)
+            
+            # Solo es error si hay más registros que posiciones únicas
+            # (significa que alguna posición está duplicada)
+            if posiciones_unicas < total_registros:
                 rows = sorted(group['_row_number'].tolist())
-                for row in rows[1:]:
-                    errors["linea_duplicada_en_lote"].append({
-                        "lote": str(lote),
-                        "linea": str(linea),
-                        "row": int(row),
-                        "duplicate_of_row": int(rows[0])
-                    })
+                # Reportar todas las filas duplicadas
+                posiciones_counts = group.groupby('posicion').size()
+                for pos, count in posiciones_counts.items():
+                    if count > 1:
+                        duplicados = group[group['posicion'] == pos]['_row_number'].tolist()
+                        duplicados_sorted = sorted(duplicados)
+                        for row in duplicados_sorted[1:]:
+                            errors["linea_duplicada_en_lote"].append({
+                                "lote": str(lote),
+                                "linea": str(linea),
+                                "posicion": float(pos) if pd.notna(pos) else None,
+                                "row": int(row),
+                                "duplicate_of_row": int(duplicados_sorted[0])
+                            })
         
         # 5. Validar posiciones duplicadas en línea
         lote_linea_pos_groups = self.df.groupby(['lote', 'linea', 'posicion'], dropna=False)

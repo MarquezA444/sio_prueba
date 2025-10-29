@@ -100,6 +100,105 @@ class SpotController extends Controller
     }
 
     /**
+     * Download corrected file with error markers
+     *
+     * @param Request $request
+     * @return \Symfony\Component\HttpFoundation\StreamedResponse
+     */
+    public function downloadCorrected(Request $request)
+    {
+        $validated = $request->validate([
+            'file' => 'required|file|mimes:csv,xlsx,xls|max:20480',
+            'errors' => 'required|string', // JSON string from frontend
+        ]);
+
+        try {
+            $file = $validated['file'];
+            $errors = json_decode($validated['errors'], true);
+            
+            if (!$errors || !is_array($errors)) {
+                return response()->json(['error' => 'Invalid errors format'], 400);
+            }
+            
+            // Read file
+            $sheets = \Maatwebsite\Excel\Facades\Excel::toCollection(
+                new SpotsImport,
+                $file
+            );
+            
+            $rows = $sheets->flatten(1);
+            
+            // Extract headers from first row
+            $firstRow = $rows->first();
+            $headers = array_keys($firstRow->toArray());
+            
+            // Identify rows to remove
+            $rowsToRemove = new \Illuminate\Support\Collection();
+            
+            // Process errors to identify duplicated rows (keep first, remove duplicates)
+            foreach ($errors as $errorType => $errorList) {
+                if (is_array($errorList)) {
+                    foreach ($errorList as $error) {
+                        if (isset($error['row'])) {
+                            $rowsToRemove->push($error['row']);
+                        }
+                    }
+                }
+            }
+            
+            // Generate CSV content
+            $output = fopen('php://temp', 'r+');
+            
+            // Write headers
+            fputcsv($output, array_merge($headers, ['Estado', 'Errores']));
+            
+            // Write rows (filter out duplicate rows)
+            foreach ($rows as $index => $row) {
+                $rowNumber = $index + 2; // +2 for header and 0-index
+                
+                // Skip rows marked for removal (duplicates)
+                if ($rowsToRemove->contains($rowNumber)) {
+                    continue;
+                }
+                
+                // Get error types for this row
+                $errorTypes = [];
+                foreach ($errors as $errorType => $errorList) {
+                    if (is_array($errorList)) {
+                        foreach ($errorList as $error) {
+                            if (isset($error['row']) && $error['row'] == $rowNumber) {
+                                $errorTypes[] = $errorType;
+                            }
+                        }
+                    }
+                }
+                
+                $status = empty($errorTypes) ? 'OK' : 'WARNING';
+                $rowArray = array_values($row->toArray());
+                fputcsv($output, array_merge($rowArray, [$status, implode(', ', $errorTypes)]));
+            }
+            
+            rewind($output);
+            
+            $filename = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME) . '_corregido.csv';
+            
+            return response()->streamDownload(function () use ($output) {
+                echo stream_get_contents($output);
+                fclose($output);
+            }, $filename, [
+                'Content-Type' => 'text/csv; charset=utf-8',
+                'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => true,
+                'message' => 'Error al generar archivo corregido: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Send validated spots to Sioma API
      *
      * @param Request $request

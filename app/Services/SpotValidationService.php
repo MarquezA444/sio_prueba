@@ -136,21 +136,30 @@ class SpotValidationService
             }
 
             // Check duplicate lineas within lote
+            // IMPORTANTE: Una línea puede tener múltiples posiciones, eso es normal
+            // Solo es error si se repite la misma línea EN LA MISMA posición dentro del mismo lote
             if ($lote !== null && $linea !== null) {
                 $loteKey = (string)$lote;
+                $lineaKey = "{$lote}_{$linea}";
+                
                 if (!isset($loteLineasMap[$loteKey])) {
                     $loteLineasMap[$loteKey] = [];
                 }
                 
-                if (isset($loteLineasMap[$loteKey][$linea])) {
+                // Crear clave única combinando línea + posición
+                $posicionStr = $posicion !== null ? (string)$posicion : 'sin-pos';
+                $lineaPosKey = "{$linea}_{$posicionStr}";
+                
+                if (isset($loteLineasMap[$loteKey][$lineaPosKey])) {
                     $errors['linea_duplicada_en_lote'][] = [
                         'lote' => $lote,
                         'linea' => $linea,
+                        'posicion' => $posicion,
                         'row' => $rowNumber,
-                        'duplicate_of_row' => $loteLineasMap[$loteKey][$linea],
+                        'duplicate_of_row' => $loteLineasMap[$loteKey][$lineaPosKey],
                     ];
                 } else {
-                    $loteLineasMap[$loteKey][$linea] = $rowNumber;
+                    $loteLineasMap[$loteKey][$lineaPosKey] = $rowNumber;
                 }
             }
 

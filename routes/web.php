@@ -34,6 +34,7 @@ Route::middleware('auth')->group(function () {
     // Spots upload and validation
     Route::prefix('api/v1/spots')->group(function () {
         Route::post('/upload', [SpotController::class, 'upload'])->name('spots.upload');
+        Route::post('/download-corrected', [SpotController::class, 'downloadCorrected'])->name('spots.download-corrected');
         Route::post('/send-sioma', [SpotController::class, 'sendToSioma'])->name('spots.send-sioma');
     });
 });

@@ -181,53 +181,51 @@ export default function Dashboard() {
     };
 
     // Generar archivo corregido
-    const handleDownloadCorrectedFile = () => {
-        if (!csvPreview || !response) {
+    const handleDownloadCorrectedFile = async () => {
+        if (!selectedFile || !response || !response.errors) {
             setError({ message: 'No hay datos para corregir' });
             return;
         }
 
         try {
-            const headers = csvPreview.headers;
-            const rows = csvPreview.allRows;
+            setLoading(true);
             
-            // Marcar filas con errores
-            const errorRows = new Set();
-            if (response.errors) {
-                Object.values(response.errors).forEach(errorList => {
-                    if (Array.isArray(errorList)) {
-                        errorList.forEach(err => {
-                            if (err.row) errorRows.add(err.row);
-                        });
-                    }
-                });
-            }
-
-            // Generar CSV con columna de errores
-            let csvContent = [...headers, 'Estado'].join(',') + '\n';
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+            formData.append('errors', JSON.stringify(response.errors));
             
-            rows.forEach((row, idx) => {
-                const rowNum = idx + 2;
-                const status = errorRows.has(rowNum) ? 'ERROR' : 'OK';
-                csvContent += [...row, status].join(',') + '\n';
+            const res = await axios.post('/api/v1/spots/download-corrected', formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                },
+                responseType: 'blob',
             });
 
-            // Descargar archivo
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            // Crear URL del blob y descargar
+            const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8;' });
+            const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
             
-            const fileName = selectedFile.name.replace(/\.(csv|xlsx|xls)$/i, '') + '_corregido.csv';
+            // Obtener nombre del archivo desde headers
+            const contentDisposition = res.headers['content-disposition'];
+            let filename = selectedFile.name.replace(/\.(csv|xlsx|xls)$/i, '') + '_corregido.csv';
             
-            link.setAttribute('href', url);
-            link.setAttribute('download', fileName);
-            link.style.visibility = 'hidden';
+            if (contentDisposition) {
+                const filenameMatch = contentDisposition.match(/filename="?(.+)"?/i);
+                if (filenameMatch) filename = filenameMatch[1];
+            }
             
+            link.href = url;
+            link.setAttribute('download', filename);
             document.body.appendChild(link);
             link.click();
-            document.body.removeChild(link);
+            link.remove();
+            window.URL.revokeObjectURL(url);
+            
+            setLoading(false);
         } catch (err) {
-            setError({ message: 'Error al generar archivo corregido: ' + err.message });
+            setLoading(false);
+            setError({ message: 'Error al generar archivo corregido: ' + (err.message || 'Error desconocido') });
         }
     };
 
@@ -290,6 +288,78 @@ export default function Dashboard() {
             setCsvPreview({ error: 'Error al leer el archivo: ' + err.message });
         } finally {
             setLoadingPreview(false);
+        }
+    };
+
+    // Función para obtener etiqueta legible del error
+    const getErrorLabel = (errorType) => {
+        const labels = {
+            'coords_duplicadas': '📍 Coordenadas Duplicadas',
+            'linea_duplicada_en_lote': '🔁 Líneas Duplicadas en Lote',
+            'posicion_duplicada_en_linea': '🔀 Posiciones Duplicadas en Línea',
+            'lote_invalido': '❌ Lotes Inválidos',
+            'rango_coord': '⚠️ Coordenadas Fuera de Rango',
+            'valores_vacios': '📭 Valores Vacíos',
+            'columnas_faltantes': '📋 Columnas Faltantes',
+        };
+        return labels[errorType] || errorType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    };
+
+    // Función para renderizar mensaje de error legible
+    const renderErrorMessage = (errorType, error) => {
+        const commonStyle = "text-gray-800";
+        
+        switch (errorType) {
+            case 'coords_duplicadas':
+                return (
+                    <div className={commonStyle}>
+                        <span className="font-semibold">Fila {error.row}:</span> Coordenadas 
+                        <span className="font-mono text-sm">({error.lat}, {error.lon})</span> duplicadas de la fila {error.duplicate_of_row}
+                    </div>
+                );
+            case 'linea_duplicada_en_lote':
+                return (
+                    <div className={commonStyle}>
+                        <span className="font-semibold">Fila {error.row}:</span> Línea <span className="font-semibold">{error.linea}</span> 
+                        {' '}duplicada en lote <span className="font-semibold">"{error.lote}"</span> (duplicada de la fila {error.duplicate_of_row})
+                    </div>
+                );
+            case 'posicion_duplicada_en_linea':
+                return (
+                    <div className={commonStyle}>
+                        <span className="font-semibold">Fila {error.row}:</span> Posición <span className="font-semibold">{error.posicion}</span> 
+                        {' '}duplicada en línea <span className="font-semibold">{error.linea}</span> del lote 
+                        <span className="font-semibold"> "{error.lote}"</span> (duplicada de la fila {error.duplicate_of_row})
+                    </div>
+                );
+            case 'lote_invalido':
+                return (
+                    <div className={commonStyle}>
+                        <span className="font-semibold">Fila {error.row}:</span> Lote <span className="font-semibold">"{error.lote}"</span> 
+                        {' '}no es válido para la finca seleccionada
+                    </div>
+                );
+            case 'rango_coord':
+                return (
+                    <div className={commonStyle}>
+                        <span className="font-semibold">Fila {error.row}:</span> {error.field === 'latitud' ? 'Latitud' : 'Longitud'} 
+                        {' '}fuera de rango: <span className="font-semibold">{error.value}</span>
+                    </div>
+                );
+            case 'valores_vacios':
+                return (
+                    <div className={commonStyle}>
+                        <span className="font-semibold">Fila {error.row}:</span> Valor vacío en columna <span className="font-semibold">{error.column}</span>
+                    </div>
+                );
+            case 'columnas_faltantes':
+                return (
+                    <div className={commonStyle}>
+                        Faltan columnas requeridas: <span className="font-semibold">{error.join(', ')}</span>
+                    </div>
+                );
+            default:
+                return <div className={commonStyle}>{JSON.stringify(error)}</div>;
         }
     };
 
@@ -576,16 +646,44 @@ export default function Dashboard() {
                                 {response.errors && Object.keys(response.errors).length > 0 && (
                                     <div className="mb-4 p-4 bg-white rounded-lg border border-red-200">
                                         <h5 className="font-semibold text-red-900 mb-2">⚠️ Errores encontrados</h5>
-                                        {Object.entries(response.errors).map(([errorType, errors]) => (
-                                            <div key={errorType} className="mb-3">
-                                                <h6 className="font-medium text-gray-900 mb-1">
-                                                    {errorType.replace(/_/g, ' ').toUpperCase()} ({errors.length})
-                                                </h6>
-                                                <div className="text-sm text-gray-700 bg-gray-50 p-2 rounded max-h-40 overflow-auto">
-                                                    <pre>{JSON.stringify(errors, null, 2)}</pre>
+                                        {Object.entries(response.errors).map(([errorType, errors]) => {
+                                            // Asegurar que errors es un array
+                                            const errorsArray = Array.isArray(errors) ? errors : [errors];
+                                            
+                                            return (
+                                                <div key={errorType} className="mb-3">
+                                                    <h6 className="font-medium text-gray-900 mb-2">
+                                                        {getErrorLabel(errorType)} ({errorsArray.length} {errorsArray.length === 1 ? 'error' : 'errores'})
+                                                    </h6>
+                                                    <div className="text-sm text-gray-700 bg-red-50 p-3 rounded max-h-40 overflow-auto border border-red-200">
+                                                        {errorsArray.slice(0, 10).map((error, idx) => (
+                                                            <div key={idx} className="mb-2 pb-2 border-b border-red-200 last:border-b-0">
+                                                                {renderErrorMessage(errorType, error)}
+                                                            </div>
+                                                        ))}
+                                                        {errorsArray.length > 10 && (
+                                                            <p className="text-gray-500 italic mt-2">
+                                                                ...y {errorsArray.length - 10} error(es) más
+                                                            </p>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
+                                        
+                                        {/* Botón de descarga de archivo corregido */}
+                                        <div className="mt-4 pt-4 border-t border-red-200">
+                                            <button
+                                                onClick={handleDownloadCorrectedFile}
+                                                disabled={loading}
+                                                className="w-full px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
+                                            >
+                                                📥 Descargar Archivo Corregido
+                                            </button>
+                                            <p className="mt-2 text-sm text-gray-600 text-center">
+                                                Los duplicados serán eliminados automáticamente
+                                            </p>
+                                        </div>
                                     </div>
                                 )}
 
